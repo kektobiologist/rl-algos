@@ -9,7 +9,7 @@ env = gym.make('CartPole-v1')
 
 sess = tf.Session()
 actor_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
-critic_optimizer = tf.train.AdamOptimizer(learning_rate=0.01)
+critic_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
 
 observation_shape = env.observation_space.shape[0]
 num_actions = env.action_space.n
@@ -40,8 +40,8 @@ for e in range(MAX_EPISODES):
   for time_t in range(500):
     action = actor.sampleAction(state)
     next_state, reward, done, _ = env.step(action)
-    reward = -20 if done and time_t < 499 else reward # normalize reward
     cum_reward += reward
+    reward = -100 if done and time_t < 499 else reward # normalize reward
     td_error = critic.learn(state, reward, next_state)
     actor.learn(state, action, td_error)
     if done:
