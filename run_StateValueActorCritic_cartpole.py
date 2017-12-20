@@ -8,19 +8,19 @@ from collections import deque
 env = gym.make('CartPole-v1')
 
 sess = tf.Session()
-actor_optimizer = tf.train.RMSPropOptimizer(learning_rate=0.001, decay=0.9)
-critic_optimizer = tf.train.RMSPropOptimizer(learning_rate=0.01, decay=0.9)
+actor_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
+critic_optimizer = tf.train.AdamOptimizer(learning_rate=0.01)
 
 observation_shape = env.observation_space.shape[0]
 num_actions = env.action_space.n
 
 def actor_network(states):
-    net = slim.stack(states, slim.fully_connected, [10], activation_fn=tf.nn.tanh, scope='stack')
+    net = slim.stack(states, slim.fully_connected, [4], activation_fn=tf.nn.tanh, scope='stack')
     net = slim.fully_connected(net, num_actions, activation_fn=None, scope='full')
     return net
 
 def critic_network(states):
-    net = slim.stack(states, slim.fully_connected, [10,10], activation_fn=tf.nn.relu, scope='stack')
+    net = slim.stack(states, slim.fully_connected, [4,4], activation_fn=tf.nn.relu, scope='stack')
     net = slim.fully_connected(net, 1, activation_fn=None, scope='full')
     net = tf.squeeze(net, [1])
     return net
