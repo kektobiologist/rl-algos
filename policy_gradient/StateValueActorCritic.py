@@ -95,8 +95,10 @@ class Actor:
     with tf.variable_scope('actor_network'):
       actor_outputs = self.actor_network(self.states)
 
-    cross_entropy_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=actor_outputs, labels=self.actions)
-    neg_log_loss = tf.reduce_mean(cross_entropy_loss * self.td_error)
+    log_prob = tf.log(tf.nn.softmax(actor_outputs)[0][self.actions[0]])
+    neg_log_loss = -tf.reduce_mean(self.td_error * log_prob)
+    # cross_entropy_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=actor_outputs, labels=self.actions)
+    # neg_log_loss = tf.reduce_mean(cross_entropy_loss * self.td_error)
 
     self.train_op = self.optimizer.minimize(neg_log_loss, var_list=tf.trainable_variables(scope='actor_network'))
 
@@ -112,6 +114,45 @@ class Actor:
         self.td_error: [td_error]
       })
 
+
+class ContinuousActor:
+  def __init__(self,
+               actor_network,
+               optimizer,
+               session,
+               action_shape,
+               observation_shape):
+    self.actor_network = actor_network
+    self.optimizer = optimizer
+    self.session = session
+    self.action_shape = action_shape
+    self.observation_shape = observation_shape
+
+    self.discount_factor = 0.99
+    self.createVariables()
+
+  def createVariables(self):
+    self.states = tf.placeholder(tf.float32, [None, self.observation_shape])
+    self.actions = tf.placeholder(tf.float32, [None, self.action_shape])
+    self.td_error = tf.placeholder(tf.float32, [None,])
+
+    with tf.variable_scope('actor_network'):
+      self.predicted_actions, action_probs = self.actor_network(self.states, self.actions)
+
+    log_probs = tf.log(action_probs)
+    neg_log_loss = -tf.reduce_mean(self.td_error * log_probs)
+
+    self.train_op = self.optimizer.minimize(neg_log_loss, var_list=tf.trainable_variables(scope='actor_network'))
+
+  def sampleAction(self, state):
+    return self.session.run(self.predicted_actions, {self.states: [state]}).squeeze()
+
+  def learn(self, state, action, td_error):
+    self.session.run(self.train_op, {
+        self.states: [state],
+        self.actions: [action],
+        self.td_error: [td_error]
+      })
 
 class Critic:
   def __init__(self,
