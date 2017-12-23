@@ -8,7 +8,7 @@ from policy_gradient.ddpg import Actor, Critic, OrnsteinUhlenbeckActionNoise
 env = gym.make('Pendulum-v0')
 
 sess = tf.Session()
-actor_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
+actor_optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
 critic_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
 
 observation_shape = env.observation_space.shape[0]
@@ -47,7 +47,9 @@ memory_buffer = deque(maxlen=10000)
 for e in range(MAX_EPISODES):
   state = env.reset()
   cum_reward = 0
-  while True:
+  ep_ave_max_q = 0
+
+  for j in range(1000):
     action = actor.predict([state])[0] + actor_noise()
     next_state, reward, done, _ = env.step(action)
     cum_reward += reward
@@ -58,25 +60,26 @@ for e in range(MAX_EPISODES):
       states, actions, rewards, next_states, notdones = zip(*[memory_buffer[idx] for idx in indices])
 
       target_actions_next_states = actor.predict_target(next_states)
-      critic.train(states=states, 
+      qs, _ = critic.train(states=states, 
         actions=actions, 
         rewards=rewards, 
         next_states=next_states, 
         target_actions_next_states=target_actions_next_states, 
         notdones=notdones)
-
+      # print qs
+      ep_ave_max_q += np.amax(qs)
       predicted_actions = actor.predict(states)
       action_gradients = critic.get_action_gradients(states, predicted_actions)
       actor.train(states=states, action_gradients=action_gradients)
 
       # update targets
-      actor.update_targets()
-      critic.update_targets()
+      actor.update_target()
+      critic.update_target()
 
     if done:
       # train agent
       # print the score and break out of the loop
       episode_history.append(cum_reward)
-      print("episode: {}/{}, score: {}, avg score for 100 runs: {:.2f}".format(e, MAX_EPISODES, cum_reward, np.mean(episode_history)))
+      print("episode: {}/{}, score: {}, avg score for 100 runs: {:.2f}, maxQ: {:.2f}".format(e, MAX_EPISODES, cum_reward, np.mean(episode_history), (ep_ave_max_q / float(j))))
       break
     state = next_state
