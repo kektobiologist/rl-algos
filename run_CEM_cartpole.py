@@ -43,23 +43,38 @@ class CEMOptimizer:
 def train():
 
   def select_action(ob, weights):
+    # cartpole:
+    # b1 = np.reshape(weights[0], (1, 1))
+    # w1 = np.reshape(weights[1:4], (1, 3))
+    # b2 = np.reshape(weights[4:7], (3, 1))
+    # w2 = np.reshape(weights[7:19], (3, 4))
+    # ob = np.reshape(ob, (4, 1))
+
+    # l1 = np.tanh(np.dot(w2, ob) - b2)
+    # l2 = np.tanh(np.dot(w1, l1) - b1)
+    # action = np.squeeze(l2)
+    # action = 1 if action > 0 else 0
+    # return action
+
+    # pendulum:
     b1 = np.reshape(weights[0], (1, 1))
     w1 = np.reshape(weights[1:4], (1, 3))
     b2 = np.reshape(weights[4:7], (3, 1))
-    w2 = np.reshape(weights[7:19], (3, 4))
-    ob = np.reshape(ob, (4, 1))
+    w2 = np.reshape(weights[7:16], (3, 3))
+    w3 = np.reshape(weights[16:25], (3, 3))
+    b3 = np.reshape(weights[25:], (3, 1))
+    ob = np.reshape(ob, (3, 1))
+    action = np.dot(w1, np.tanh(np.dot(w2, np.tanh(np.dot(w3, ob) - b3)) - b2)) - b1
+    return np.tanh(action) * 2
 
-    l1 = np.tanh(np.dot(w2, ob) - b2)
-    l2 = np.tanh(np.dot(w1, l1) - b1)
-    action = np.squeeze(l2)
-    action = 1 if action > 0 else 0
-    return action
-
-  opt = CEMOptimizer(19, 500, rho=0.01, eta=0.3, deviation=10, deviation_lim=20)
-  env = gym.make("CartPole-v0")
-  env = gym.wrappers.Monitor(env, '/tmp/cartpole-experiment-3', force=True)
+  # opt = CEMOptimizer(19, 500, rho=0.01, eta=0.3, deviation=10, deviation_lim=20)
+  opt = CEMOptimizer(3*3+3*3+3*1+3*1+3*1+1, 500, rho=0.01, eta=0.3, deviation=10, deviation_lim=20)
+  # env = gym.make("CartPole-v0")
+  env = gym.make("Pendulum-v0")
+  # env = gym.wrappers.Monitor(env, '/tmp/cartpole-experiment-3', force=True)
   epoch = 80
-  run_times = 200
+  # run_times = 200
+  run_times = 10
 
   def test():
     W = opt.get_weights()
@@ -87,7 +102,7 @@ def train():
         while True:
           action = select_action(observation, weights[b])
           observation, reward, done, info = env.step(action)
-          reward = -20 if done and t < 199 else reward
+          # reward = -20 if done and t < 199 else reward
           accreward += reward
           if done:
             break

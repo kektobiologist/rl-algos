@@ -15,12 +15,12 @@ observation_shape = env.observation_space.shape[0]
 num_actions = env.action_space.n
 
 def actor_network(states):
-    net = slim.stack(states, slim.fully_connected, [4], activation_fn=tf.nn.tanh, scope='stack')
+    net = slim.stack(states, slim.fully_connected, [20], activation_fn=tf.nn.tanh, scope='stack')
     net = slim.fully_connected(net, num_actions, activation_fn=None, scope='full')
     return net
 
 def critic_network(states):
-    net = slim.stack(states, slim.fully_connected, [4,4], activation_fn=tf.nn.relu, scope='stack')
+    net = slim.stack(states, slim.fully_connected, [20], activation_fn=tf.nn.relu, scope='stack')
     net = slim.fully_connected(net, 1, activation_fn=None, scope='full')
     net = tf.squeeze(net, [1])
     return net

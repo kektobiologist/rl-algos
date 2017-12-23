@@ -9,7 +9,7 @@ env = gym.make('Pendulum-v0')
 
 sess = tf.Session()
 actor_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
-critic_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
+critic_optimizer = tf.train.AdamOptimizer(learning_rate=0.01)
 
 observation_shape = env.observation_space.shape[0]
 action_shape = env.action_space.shape[0]
@@ -17,25 +17,24 @@ action_shape = env.action_space.shape[0]
 def actor_network(states, actions):
   # should return predicted_actions, action_probs
   with tf.variable_scope('mu'):
-    net = slim.stack(states, slim.fully_connected, [24], activation_fn=tf.nn.tanh, scope='stack')
+    net = slim.stack(states, slim.fully_connected, [30], activation_fn=tf.nn.tanh, scope='stack')
     mu = slim.fully_connected(net, action_shape, activation_fn=None, scope='full')
 
   with tf.variable_scope('std'):
-    net = slim.stack(states, slim.fully_connected, [24], activation_fn=tf.nn.tanh, scope='stack')
     logstd = slim.fully_connected(net, action_shape, activation_fn=None, scope='full')
     std = tf.exp(logstd)
 
   prob_dist = tf.distributions.Normal(loc=mu, scale=std)
   batch_size = tf.shape(states)[0]
   # predicted actions
-  predicted_actions = prob_dist.sample(batch_size)
+  predicted_actions = tf.clip_by_value(prob_dist.sample(batch_size), -2.0, 2.0)
   # action_probs. each row of shape action_shape, needs to be reduced by multiplication
   action_probs = prob_dist.prob(actions)
   action_probs = tf.reduce_prod(action_probs, axis=1)
   return predicted_actions, action_probs
 
 def critic_network(states):
-  net = slim.stack(states, slim.fully_connected, [24,], activation_fn=tf.nn.tanh, scope='stack')
+  net = slim.stack(states, slim.fully_connected, [30], activation_fn=tf.nn.relu, scope='stack')
   net = slim.fully_connected(net, 1, activation_fn=None, scope='full')
   net = tf.squeeze(net, [1])
   return net
@@ -52,7 +51,8 @@ episode_history = deque(maxlen=100)
 for e in range(MAX_EPISODES):
   state = env.reset()
   cum_reward = 0
-  for time_t in range(200):
+  while True:
+    # env.render()
     action = [actor.sampleAction(state)]
     # print action
     next_state, reward, done, _ = env.step(action)
