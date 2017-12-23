@@ -30,6 +30,7 @@ def critic_network(states, actions):
   net = tf.concat([state_net, action_net], 1)
   net = slim.stack(net, slim.fully_connected, [24], activation_fn=tf.nn.relu, scope='stack')
   net = slim.fully_connected(net, 1, activation_fn=tf.nn.relu, scope='full')
+  print net
   net = tf.squeeze(net, [1])
   return net
 
