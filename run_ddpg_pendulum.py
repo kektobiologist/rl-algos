@@ -61,12 +61,13 @@ for e in range(MAX_EPISODES):
 
       qprimes = critic.predict_target(next_states, actor.predict_target(next_states))
       target_qs = [r + 0.99 * qp if not d else r for (r, qp, d) in zip(rewards, qprimes, dones)]
-      qs, qloss, _ = critic.train(states=states, 
+      qs, target_net_qs, qloss, _ = critic.train(states=states, 
         actions=actions, 
         target_qs=target_qs)
+      # print target_net_qs
       # print qs
       # print target_qs-qs
-      print qloss
+      # print qloss
       ep_ave_max_q += np.amax(qs)
       predicted_actions = actor.predict(states)
       action_gradients = critic.get_action_gradients(states, predicted_actions)

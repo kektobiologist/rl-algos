@@ -120,7 +120,7 @@ class Critic:
       })
 
   def train(self, states, actions, target_qs):
-    return self.session.run([self.critic_outputs, self.loss, self.train_op], feed_dict={
+    return self.session.run([self.critic_outputs, self.target_critic_outputs, self.loss, self.train_op], feed_dict={
       self.states: states,
       self.actions: actions,
       self.target_qs: target_qs
