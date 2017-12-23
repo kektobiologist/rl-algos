@@ -30,7 +30,6 @@ def critic_network(states, actions):
   net = tf.concat([state_net, action_net], 1)
   net = slim.stack(net, slim.fully_connected, [24], activation_fn=tf.nn.relu, scope='stack')
   net = slim.fully_connected(net, 1, activation_fn=tf.nn.relu, scope='full')
-  print net
   net = tf.squeeze(net, [1])
   return net
 
@@ -54,20 +53,20 @@ for e in range(MAX_EPISODES):
     action = actor.predict([state])[0] + actor_noise()
     next_state, reward, done, _ = env.step(action)
     cum_reward += reward
-    memory_buffer.append((state, action, reward, next_state, 0.0 if done else 1.0))
+    memory_buffer.append((state, action, reward, next_state, done))
 
     if len(memory_buffer) > BATCH_SIZE:
       indices = np.random.choice(len(memory_buffer), BATCH_SIZE, replace=False)
-      states, actions, rewards, next_states, notdones = zip(*[memory_buffer[idx] for idx in indices])
+      states, actions, rewards, next_states, dones = zip(*[memory_buffer[idx] for idx in indices])
 
-      target_actions_next_states = actor.predict_target(next_states)
-      qs, _ = critic.train(states=states, 
+      qprimes = critic.predict_target(next_states, actor.predict_target(next_states))
+      target_qs = [r + 0.99 * qp if not d else r for (r, qp, d) in zip(rewards, qprimes, dones)]
+      qs, qloss, _ = critic.train(states=states, 
         actions=actions, 
-        rewards=rewards, 
-        next_states=next_states, 
-        target_actions_next_states=target_actions_next_states, 
-        notdones=notdones)
+        target_qs=target_qs)
       # print qs
+      # print target_qs-qs
+      print qloss
       ep_ave_max_q += np.amax(qs)
       predicted_actions = actor.predict(states)
       action_gradients = critic.get_action_gradients(states, predicted_actions)
