@@ -74,12 +74,12 @@ def critic_network_tflearn(states, actions):
     return out
 
 
-actor = Actor(actor_network_tflearn, actor_optimizer, sess, observation_shape, action_shape)
+actor = Actor(actor_network, actor_optimizer, sess, observation_shape, action_shape)
 critic = Critic(critic_network_tflearn, critic_optimizer, sess, observation_shape, action_shape)
 actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape))
 
 MAX_EPISODES = 10000
-MAX_STEPS    = 200
+MAX_STEPS    = 1000
 
 sess.run(tf.global_variables_initializer())
 
@@ -91,26 +91,26 @@ for e in range(MAX_EPISODES):
   cum_reward = 0
   ep_ave_max_q = 0
   tot_loss = 0
-  for j in range(1000):
+  for j in range(MAX_STEPS):
     action = actor.predict([state])[0] + actor_noise()
     next_state, reward, done, _ = env.step(action)
     cum_reward += reward
     tot_rewards.append(reward)
-    memory_buffer.append((state, action, reward, next_state, done))
+    memory_buffer.append((state, action, reward, next_state, 1.0 if not done else 0.0))
 
     if len(memory_buffer) > BATCH_SIZE:
       indices = np.random.choice(len(memory_buffer), BATCH_SIZE, replace=False)
       # indices = range(64)
-      states, actions, rewards, next_states, dones = zip(*[memory_buffer[idx] for idx in indices])
+      states, actions, rewards, next_states, notdones = zip(*[memory_buffer[idx] for idx in indices])
 
-      qprimes = critic.predict_target(next_states, actor.predict_target(next_states))
-      # normalize rewards?
-      # avg_reward = np.mean(tot_rewards)
-      # rewards = [r + 9.0 for r in rewards]
-      target_qs = [r + 0.99 * qp if not d else r for (r, qp, d) in zip(rewards, qprimes, dones)]
-      qs, target_net_qs, qloss, _ = critic.train(states=states, 
+      next_actions = actor.predict_target(next_states)
+      qs, qloss, _ = critic.train(states=states, 
         actions=actions, 
-        target_qs=target_qs)
+        rewards=rewards,
+        next_states=next_states,
+        next_actions=next_actions,
+        notdones=notdones
+        )
       # print target_net_qs
       # print qs
       # print np.mean(np.square(target_qs-qs)) - qloss
