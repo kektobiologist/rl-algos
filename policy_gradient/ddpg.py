@@ -97,7 +97,6 @@ class Critic:
 
       critic_variables = tf.trainable_variables(scope='critic_network')
       target_critic_variables = tf.trainable_variables(scope='target_critic_network')
-      # print len(critic_variables, target_critic_variables, tf.trainable_variables())
 
       self.target_qs = tf.placeholder(tf.float32, [None,], name='target_qs')
       self.loss = tf.losses.mean_squared_error(self.target_qs, self.critic_outputs)
