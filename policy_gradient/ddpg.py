@@ -4,7 +4,7 @@ import numpy as np
 import gym
 from collections import deque
 
-TAU = 0.0001
+TAU = 0.001
 DISCOUNT_FACTOR = 0.99
 
 class Actor:

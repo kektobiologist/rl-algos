@@ -9,7 +9,12 @@ from policy_gradient.ddpg import Actor, Critic, OrnsteinUhlenbeckActionNoise
 
 env = gym.make('Pendulum-v0')
 
-sess = tf.Session()
+np.random.seed(0)
+tf.set_random_seed(0)
+
+gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.33)
+sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+
 actor_optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
 critic_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
 
@@ -17,7 +22,7 @@ observation_shape = env.observation_space.shape[0]
 action_shape = env.action_space.shape[0]
 
 ACTION_BOUNDS = [2.0]
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 
 def actor_network(states):
   net = slim.stack(states, slim.fully_connected, [24, 24], activation_fn=tf.nn.relu, scope='stack')
@@ -27,21 +32,42 @@ def actor_network(states):
   return net
 
 def critic_network(states, actions):
-  state_net = slim.stack(states, slim.fully_connected, [5], activation_fn=tf.nn.relu, scope='stack_state')
-  action_net = slim.stack(actions, slim.fully_connected, [5], activation_fn=tf.nn.relu, scope='stack_action')
-  net = tf.concat([state_net, action_net], 1)
-  net = slim.stack(net, slim.fully_connected, [5], activation_fn=tf.nn.relu, scope='stack')
-  net = slim.fully_connected(net, 1, activation_fn=tf.nn.relu, scope='full')
-  net = tf.squeeze(net, [1])
-  return net
+  with tf.variable_scope('critic'):
+    state_net = slim.stack(states, slim.fully_connected, [24, 24], activation_fn=tf.nn.relu, scope='stack_state')
+    action_net = slim.stack(actions, slim.fully_connected, [24], activation_fn=tf.nn.relu, scope='stack_action')
+    # net = tf.contrib.layers.fully_connected(states, 400, scope='full_state')
+    # net = tflearn.fully_connected(states, 400)
+    # net = tflearn.layers.normalization.batch_normalization(net)
+    # net = tflearn.activations.relu(net)
+    net = tf.concat([state_net, action_net], 1)
+    net = tf.contrib.layers.fully_connected(net, 24)
+    # w1 = tf.get_variable('w1', shape=[400, 300], dtype=tf.float32)
+    # w2 = tf.get_variable('w2', shape=[1, 300], dtype=tf.float32)
+    # b = tf.get_variable('b', shape=[300], dtype=tf.float32)
+    # t1 = tflearn.fully_connected(net, 300)
+    # t2 = tflearn.fully_connected(actions, 300)
+    # print t1.W, t2.W
+    # net = tflearn.activation(
+    #     tf.matmul(net, t1.W) + tf.matmul(actions, t2.W) + t2.b, activation='relu')
+
+    # net = tf.matmul(net, w1) + tf.matmul(actions, w2) + b
+    # net = tf.nn.relu(net)
+    # net = slim.stack(net, slim.fully_connected, [5], activation_fn=tf.nn.relu, scope='stack')
+    # net = slim.fully_connected(net, 1, activation_fn=tf.nn.relu, scope='full')
+    # net = tf.contrib.layers.fully_connected(net, 1, scope='last')
+    # w_init = tflearn.initializations.uniform(minval=-0.003, maxval=0.003)
+    # net = slim.stack(net, slim.fully_connected, [24, 1], scope='final')
+    net = tflearn.fully_connected(net, 1)
+    net = tf.squeeze(net, axis=[1])
+    return net
 
 def actor_network_tflearn(states):
   with tf.variable_scope('actor'):
     net = tflearn.fully_connected(states, 400)
-    # net = tflearn.layers.normalization.batch_normalization(net)
+    net = tflearn.layers.normalization.batch_normalization(net)
     net = tflearn.activations.relu(net)
     net = tflearn.fully_connected(net, 300)
-    # net = tflearn.layers.normalization.batch_normalization(net)
+    net = tflearn.layers.normalization.batch_normalization(net)
     net = tflearn.activations.relu(net)
     # Final layer weights are init to Uniform[-3e-3, 3e-3]
     w_init = tflearn.initializations.uniform(minval=-0.003, maxval=0.003)
@@ -61,21 +87,21 @@ def critic_network_tflearn(states, actions):
     # Use two temp layers to get the corresponding weights and biases
     t1 = tflearn.fully_connected(net, 300)
     t2 = tflearn.fully_connected(actions, 300)
-
+    print t1.W, t2.W
     net = tflearn.activation(
         tf.matmul(net, t1.W) + tf.matmul(actions, t2.W) + t2.b, activation='relu')
 
     # linear layer connected to 1 output representing Q(s,a)
     # Weights are init to Uniform[-3e-3, 3e-3]
-    # w_init = tflearn.initializations.uniform(minval=-0.003, maxval=0.003)
-    # out = tflearn.fully_connected(net, 1, weights_init=w_init)
-    out = tflearn.fully_connected(net, 1)
+    w_init = tflearn.initializations.uniform(minval=-0.003, maxval=0.003)
+    out = tflearn.fully_connected(net, 1, weights_init=w_init)
+    # out = tflearn.fully_connected(net, 1)
     out = tf.squeeze(out, axis=[1])
     return out
 
 
 actor = Actor(actor_network, actor_optimizer, sess, observation_shape, action_shape)
-critic = Critic(critic_network_tflearn, critic_optimizer, sess, observation_shape, action_shape)
+critic = Critic(critic_network, critic_optimizer, sess, observation_shape, action_shape)
 actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape))
 
 MAX_EPISODES = 10000
