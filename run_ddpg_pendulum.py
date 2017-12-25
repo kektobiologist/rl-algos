@@ -25,7 +25,7 @@ ACTION_BOUNDS = [2.0]
 BATCH_SIZE = 128
 
 def actor_network(states):
-  net = slim.stack(states, slim.fully_connected, [24, 24], activation_fn=tf.nn.relu, scope='stack')
+  net = slim.stack(states, slim.fully_connected, [100, 100], activation_fn=tf.nn.relu, scope='stack')
   net = slim.fully_connected(net, action_shape, activation_fn=tf.nn.tanh, scope='full')
   # mult with action bounds
   net = ACTION_BOUNDS * net
@@ -33,14 +33,14 @@ def actor_network(states):
 
 def critic_network(states, actions):
   with tf.variable_scope('critic'):
-    state_net = slim.stack(states, slim.fully_connected, [24, 24], activation_fn=tf.nn.relu, scope='stack_state')
-    action_net = slim.stack(actions, slim.fully_connected, [24], activation_fn=tf.nn.relu, scope='stack_action')
+    state_net = slim.stack(states, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_state')
+    action_net = slim.stack(actions, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_action')
     # net = tf.contrib.layers.fully_connected(states, 400, scope='full_state')
     # net = tflearn.fully_connected(states, 400)
     # net = tflearn.layers.normalization.batch_normalization(net)
     # net = tflearn.activations.relu(net)
     net = tf.concat([state_net, action_net], 1)
-    net = tf.contrib.layers.fully_connected(net, 24)
+    net = tf.contrib.layers.fully_connected(net, 400)
     # w1 = tf.get_variable('w1', shape=[400, 300], dtype=tf.float32)
     # w2 = tf.get_variable('w2', shape=[1, 300], dtype=tf.float32)
     # b = tf.get_variable('b', shape=[300], dtype=tf.float32)
@@ -56,7 +56,8 @@ def critic_network(states, actions):
     # net = slim.fully_connected(net, 1, activation_fn=tf.nn.relu, scope='full')
     # net = tf.contrib.layers.fully_connected(net, 1, scope='last')
     # w_init = tflearn.initializations.uniform(minval=-0.003, maxval=0.003)
-    # net = slim.stack(net, slim.fully_connected, [24, 1], scope='final')
+    # net = slim.stack(net, slim.fully_connected, [24, 1], scope='final', biases_initializer=tf.zeros_initializer())
+    # net = tf.layers.dense(net, 1, activation=tf.nn.relu, use_bias=True, name='last')
     net = tflearn.fully_connected(net, 1)
     net = tf.squeeze(net, axis=[1])
     return net
