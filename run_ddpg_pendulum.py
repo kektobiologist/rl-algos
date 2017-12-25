@@ -33,6 +33,8 @@ def actor_network(states):
 
 def critic_network(states, actions):
   with tf.variable_scope('critic'):
+    # state_net = tflearn.fully_connected(states, 300, activation='relu', scope='full_state')
+    # action_net = tflearn.fully_connected(actions, 300, activation='relu', scope='full_action')
     state_net = slim.stack(states, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_state')
     action_net = slim.stack(actions, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_action')
     # net = tf.contrib.layers.fully_connected(states, 400, scope='full_state')
@@ -40,7 +42,8 @@ def critic_network(states, actions):
     # net = tflearn.layers.normalization.batch_normalization(net)
     # net = tflearn.activations.relu(net)
     net = tf.concat([state_net, action_net], 1)
-    net = tf.contrib.layers.fully_connected(net, 400)
+    # net = tf.contrib.layers.fully_connected(net, 400)
+    net = slim.fully_connected(net, 400, activation_fn=tf.nn.relu, scope='full')
     # w1 = tf.get_variable('w1', shape=[400, 300], dtype=tf.float32)
     # w2 = tf.get_variable('w2', shape=[1, 300], dtype=tf.float32)
     # b = tf.get_variable('b', shape=[300], dtype=tf.float32)
