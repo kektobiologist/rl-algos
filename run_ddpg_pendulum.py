@@ -54,10 +54,10 @@ def critic_network(states, actions):
     # net = tf.nn.relu(net)
     # net = slim.stack(net, slim.fully_connected, [5], activation_fn=tf.nn.relu, scope='stack')
     # net = slim.fully_connected(net, 1, activation_fn=tf.nn.relu, scope='full')
-    # net = tf.contrib.layers.fully_connected(net, 1, scope='last')
+    net = tf.contrib.layers.fully_connected(net, 1, scope='last')
     # w_init = tflearn.initializations.uniform(minval=-0.003, maxval=0.003)
     # net = slim.stack(net, slim.fully_connected, [24, 1], scope='final')
-    net = tflearn.fully_connected(net, 1)
+    # net = tflearn.fully_connected(net, 1)
     net = tf.squeeze(net, axis=[1])
     return net
 
