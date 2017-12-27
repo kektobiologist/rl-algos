@@ -27,6 +27,7 @@ BATCH_SIZE = 128
 tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model')
 tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg_pendulum/', 'dir for storing checkpoints')
 tf.app.flags.DEFINE_boolean('dont_save', False, 'whether to save checkpoints')
+tf.app.flags.DEFINE_boolean('render', False, 'render of not')
 FLAGS = tf.app.flags.FLAGS
 
 def actor_network(states):
@@ -138,7 +139,10 @@ def main(_):
     ep_ave_max_q = 0
     tot_loss = 0
     for j in range(MAX_STEPS):
-      action = actor.predict([state])[0] + actor_noise()
+      if FLAGS.render:
+        env.render()
+      action = actor.predict([state])[0] 
+        #+ actor_noise()
       next_state, reward, done, _ = env.step(action)
       cum_reward += reward
       tot_rewards.append(reward)
