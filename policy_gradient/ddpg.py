@@ -43,7 +43,7 @@ class Actor:
       # del-theta mu(s) * del-a Q(s,a) | a = mu(s)
       # minus sign because apply_gradients negates the gradient before applying
       self.unnormalized_actor_gradients = tf.gradients(self.actor_outputs, actor_variables, -self.action_gradients)
-
+      print self.unnormalized_actor_gradients
       batch_size = tf.cast(tf.shape(self.states)[0], tf.float32)
       self.actor_gradients = [tf.div(gradient, batch_size) for gradient in self.unnormalized_actor_gradients]
 
@@ -52,6 +52,9 @@ class Actor:
       # copy variables op
       self.update_target_variables_op = [target_variable.assign(actor_variable * self.tau + target_variable * (1. - self.tau))
         for (target_variable, actor_variable) in zip(target_actor_variables, actor_variables) ]
+
+      self.hard_update_target_variables_op = [target_variable.assign(actor_variable) 
+        for (target_variable, actor_variable) in zip(target_actor_variables, actor_variables)]
 
 
   def predict(self, states):
@@ -65,6 +68,9 @@ class Actor:
 
   def update_target(self):
     self.session.run(self.update_target_variables_op)
+
+  def hard_update(self):
+    self.session.run(self.hard_update_target_variables_op)
 
 class Critic:
   def __init__(self,
@@ -113,6 +119,8 @@ class Critic:
       self.update_target_variables_op = [target_variable.assign(critic_variable * self.tau + target_variable * (1. - self.tau))
         for (target_variable, critic_variable) in zip(target_critic_variables, critic_variables) ]
 
+      self.hard_update_target_variables_op = [target_variable.assign(critic_variable) 
+        for (target_variable, critic_variable) in zip(target_critic_variables, critic_variables)]
       # action gradients op, why is it [1, batch_size, 1]?
       self.action_gradients = tf.gradients(self.critic_outputs, self.actions)[0]
 
@@ -128,6 +136,9 @@ class Critic:
 
   def update_target(self):
     self.session.run(self.update_target_variables_op)
+
+  def hard_update(self):
+    self.session.run(self.hard_update_target_variables_op)
 
   def get_action_gradients(self, states, actions):
     return self.session.run(self.action_gradients, feed_dict={self.states: states, self.actions: actions})

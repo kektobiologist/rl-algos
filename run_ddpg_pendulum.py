@@ -6,12 +6,11 @@ import tflearn
 
 from collections import deque
 from policy_gradient.ddpg import Actor, Critic, OrnsteinUhlenbeckActionNoise
+from policy_gradient.memory import SequentialMemory
 
 env = gym.make('Pendulum-v0')
-
 np.random.seed(0)
 tf.set_random_seed(0)
-
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.33)
 sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 
@@ -24,8 +23,14 @@ action_shape = env.action_space.shape[0]
 ACTION_BOUNDS = [2.0]
 BATCH_SIZE = 128
 
+
+tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model')
+tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg_pendulum/', 'dir for storing checkpoints')
+tf.app.flags.DEFINE_boolean('dont_save', False, 'whether to save checkpoints')
+FLAGS = tf.app.flags.FLAGS
+
 def actor_network(states):
-  net = slim.stack(states, slim.fully_connected, [100, 100], activation_fn=tf.nn.relu, scope='stack')
+  net = slim.stack(states, slim.fully_connected, [400, 300], activation_fn=tf.nn.relu, scope='stack')
   net = slim.fully_connected(net, action_shape, activation_fn=tf.nn.tanh, scope='full')
   # mult with action bounds
   net = ACTION_BOUNDS * net
@@ -36,12 +41,12 @@ def critic_network(states, actions):
     # state_net = tflearn.fully_connected(states, 300, activation='relu', scope='full_state')
     # action_net = tflearn.fully_connected(actions, 300, activation='relu', scope='full_action')
     state_net = slim.stack(states, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_state')
-    action_net = slim.stack(actions, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_action')
+    # action_net = slim.stack(actions, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_action')
     # net = tf.contrib.layers.fully_connected(states, 400, scope='full_state')
     # net = tflearn.fully_connected(states, 400)
     # net = tflearn.layers.normalization.batch_normalization(net)
     # net = tflearn.activations.relu(net)
-    net = tf.concat([state_net, action_net], 1)
+    net = tf.concat([state_net, actions], 1)
     # net = tf.contrib.layers.fully_connected(net, 400)
     net = slim.fully_connected(net, 400, activation_fn=tf.nn.relu, scope='full')
     # w1 = tf.get_variable('w1', shape=[400, 300], dtype=tf.float32)
@@ -104,61 +109,81 @@ def critic_network_tflearn(states, actions):
     return out
 
 
-actor = Actor(actor_network, actor_optimizer, sess, observation_shape, action_shape)
-critic = Critic(critic_network, critic_optimizer, sess, observation_shape, action_shape)
-actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape))
+def main(_):
+  actor = Actor(actor_network, actor_optimizer, sess, observation_shape, action_shape)
+  critic = Critic(critic_network, critic_optimizer, sess, observation_shape, action_shape)
+  actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape))
 
-MAX_EPISODES = 10000
-MAX_STEPS    = 1000
+  MAX_EPISODES = 10000
+  MAX_STEPS    = 1000
 
-sess.run(tf.global_variables_initializer())
+  saver = tf.train.Saver()
+  if FLAGS.checkpoint:
+    saver.restore(sess, FLAGS.checkpoint)
+  else:
+    sess.run(tf.global_variables_initializer())
 
-episode_history = deque(maxlen=100)
-memory_buffer = deque(maxlen=10000)
-tot_rewards = deque(maxlen=10000)
-for e in range(MAX_EPISODES):
-  state = env.reset()
-  cum_reward = 0
-  ep_ave_max_q = 0
-  tot_loss = 0
-  for j in range(MAX_STEPS):
-    action = actor.predict([state])[0] + actor_noise()
-    next_state, reward, done, _ = env.step(action)
-    cum_reward += reward
-    tot_rewards.append(reward)
-    memory_buffer.append((state, action, reward, next_state, 1.0 if not done else 0.0))
+  # hard update target networks
+  actor.hard_update()
+  critic.hard_update()
 
-    if len(memory_buffer) > BATCH_SIZE:
-      indices = np.random.choice(len(memory_buffer), BATCH_SIZE, replace=False)
-      # indices = range(64)
-      states, actions, rewards, next_states, notdones = zip(*[memory_buffer[idx] for idx in indices])
+  episode_history = deque(maxlen=100)
+  memory = SequentialMemory(limit=600000, window_length=1)
 
-      next_actions = actor.predict_target(next_states)
-      qs, qloss, _ = critic.train(states=states, 
-        actions=actions, 
-        rewards=rewards,
-        next_states=next_states,
-        next_actions=next_actions,
-        notdones=notdones
-        )
-      # print target_net_qs
-      # print qs
-      # print np.mean(np.square(target_qs-qs)) - qloss
-      # print qloss
-      ep_ave_max_q += np.amax(qs)
-      tot_loss += qloss
-      predicted_actions = actor.predict(states)
-      action_gradients = critic.get_action_gradients(states, predicted_actions)
-      actor.train(states=states, action_gradients=action_gradients)
+  tot_rewards = deque(maxlen=10000)
+  numsteps = 0
+  for e in range(MAX_EPISODES):
+    state = env.reset()
+    cum_reward = 0
+    ep_ave_max_q = 0
+    tot_loss = 0
+    for j in range(MAX_STEPS):
+      action = actor.predict([state])[0] + actor_noise()
+      next_state, reward, done, _ = env.step(action)
+      cum_reward += reward
+      tot_rewards.append(reward)
+      # memory_buffer.append((state, action, reward, next_state, 1.0 if not done else 0.0))
+      memory.append(state, action, reward, done)
+      numsteps += 1
+      if numsteps > BATCH_SIZE:
+        # indices = np.random.choice(len(memory_buffer), BATCH_SIZE, replace=False)
+        # indices = range(64)
+        states, actions, rewards, next_states, notdones = memory.sample_and_split(BATCH_SIZE)
 
-      # update targets
-      actor.update_target()
-      critic.update_target()
+        rewards, notdones = [np.squeeze(x) for x in [rewards, notdones]]
+        next_actions = actor.predict_target(next_states)
+        qs, qloss, _ = critic.train(states=states, 
+          actions=actions, 
+          rewards=rewards,
+          next_states=next_states,
+          next_actions=next_actions,
+          notdones=notdones
+          )
+        # print target_net_qs
+        # print qs
+        # print np.mean(np.square(target_qs-qs)) - qloss
+        # print qloss
+        ep_ave_max_q += np.amax(qs)
+        tot_loss += qloss
+        predicted_actions = actor.predict(states)
+        action_gradients = critic.get_action_gradients(states, predicted_actions)
+        actor.train(states=states, action_gradients=action_gradients)
 
-    if done:
-      # train agent
-      # print the score and break out of the loop
-      episode_history.append(cum_reward)
-      print("episode: {}/{}, score: {}, avg score for 100 runs: {:.2f}, maxQ: {:.2f}, avg loss: {:.5f}".format(e, MAX_EPISODES, cum_reward, np.mean(episode_history), ep_ave_max_q / float(j), tot_loss / float(j)))
-      break
-    state = next_state
+        # update targets
+        actor.update_target()
+        critic.update_target()
+
+      if done:
+        # train agent
+        # print the score and break out of the loop
+        episode_history.append(cum_reward)
+        print("episode: {}/{}, score: {}, avg score for 100 runs: {:.2f}, maxQ: {:.2f}, avg loss: {:.5f}".format(e, MAX_EPISODES, cum_reward, np.mean(episode_history), ep_ave_max_q / float(j), tot_loss / float(j)))
+        break
+      state = next_state
+    if e%100 == 0 and not FLAGS.dont_save:
+      save_path = saver.save(sess, FLAGS.save_checkpoint_dir + 'model-' + str(e) + '.ckpt')
+      print 'saved model ' + save_path
+
+
+if __name__ == '__main__':
+  tf.app.run()
