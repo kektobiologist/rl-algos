@@ -4,7 +4,6 @@ import numpy as np
 import gym
 from collections import deque
 
-TAU = 0.001
 DISCOUNT_FACTOR = 0.99
 
 class Actor:
@@ -13,7 +12,8 @@ class Actor:
                optimizer,
                session,
                observation_shape,
-               action_shape):
+               action_shape,
+               tau=1e-3):
     self.actor_network = actor_network
     self.optimizer = optimizer
     self.session = session
@@ -21,7 +21,7 @@ class Actor:
     self.action_shape = action_shape
 
     self.discount_factor = DISCOUNT_FACTOR
-    self.tau = TAU
+    self.tau = tau
     self.createVariables()
 
 
@@ -43,7 +43,6 @@ class Actor:
       # del-theta mu(s) * del-a Q(s,a) | a = mu(s)
       # minus sign because apply_gradients negates the gradient before applying
       self.unnormalized_actor_gradients = tf.gradients(self.actor_outputs, actor_variables, -self.action_gradients)
-      print self.unnormalized_actor_gradients
       batch_size = tf.cast(tf.shape(self.states)[0], tf.float32)
       self.actor_gradients = [tf.div(gradient, batch_size) for gradient in self.unnormalized_actor_gradients]
 
@@ -78,7 +77,8 @@ class Critic:
                optimizer,
                session,
                observation_shape,
-               action_shape):
+               action_shape,
+               tau=1e-3):
     self.critic_network = critic_network
     self.optimizer = optimizer
     self.session = session
@@ -86,7 +86,7 @@ class Critic:
     self.action_shape = action_shape
 
     self.discount_factor = DISCOUNT_FACTOR
-    self.tau = TAU
+    self.tau = tau
     self.createVariables()
 
   def createVariables(self):
