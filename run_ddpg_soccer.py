@@ -38,7 +38,7 @@ ACTION_SCALE_MIN = [ 0., -180.]
 ACTION_SCALE_VALID = [ True, True]
 def actor_network(states):
   with tf.variable_scope('actor'):
-    net = slim.stack(states, slim.fully_connected, [1024, 512, 256, 128], activation_fn=tf.nn.relu, scope='stack1')
+    net = slim.stack(states, slim.fully_connected, [400, 300], activation_fn=tf.nn.relu, scope='stack1')
     # first 2 ouputs as linear (for logprob later), rest 5 as tanh
     # no, use tanh for all
     # net1 = slim.fully_connected(net, 2, activation_fn=None, scope='net1full')
@@ -59,12 +59,12 @@ def actor_network(states):
 
 def critic_network(states, actions):
   with tf.variable_scope('critic'):
-    # state_net = slim.stack(states, slim.fully_connected, [512], activation_fn=tf.nn.relu, scope='stack_state')
+    state_net = slim.stack(states, slim.fully_connected, [400], activation_fn=tf.nn.relu, scope='stack_state')
     # action_net = slim.stack(actions, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_action')
 
-    net = tf.concat([states, actions], 1)
+    net = tf.concat([state_net, actions], 1)
 
-    net = slim.stack(net, slim.fully_connected, [1024, 512, 256, 128], activation_fn=tf.nn.relu, scope='stack_all')
+    net = slim.stack(net, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_all')
     net = tflearn.fully_connected(net, 1)
     net = tf.squeeze(net, axis=[1])
     return net
