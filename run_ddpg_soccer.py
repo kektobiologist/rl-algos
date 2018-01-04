@@ -17,7 +17,7 @@ tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model'
 tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg_soccer/', 'dir for storing checkpoints')
 tf.app.flags.DEFINE_boolean('dont_save', False, 'whether to save checkpoints')
 tf.app.flags.DEFINE_boolean('render', False, 'render of not')
-tf.app.flags.DEFINE_boolean('notrain', False, 'if true, don\'t train')
+tf.app.flags.DEFINE_boolean('train', True, 'if false, don\'t train')
 FLAGS = tf.app.flags.FLAGS
 
 
@@ -30,48 +30,50 @@ sess = tf.Session()
 actor_optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
 critic_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
 
-action_shape = 5 #  dash weight, turn weight, move speed, move angle, turn angle
+action_shape = 2 #  move speed, move angle, turn angle
 observation_shape = 59 # ball ang (2), ball dist (1)
 
-ACTION_SCALE_MAX = [0., 0., 100., 180., 180.]
-ACTION_SCALE_MIN = [0., 0., 0., -180., -180.]
-ACTION_SCALE_VALID = [False, False, True, True, True]
+ACTION_SCALE_MAX = [ 100., 180.]
+ACTION_SCALE_MIN = [ 0., -180.]
+ACTION_SCALE_VALID = [ True, True]
 def actor_network(states):
   with tf.variable_scope('actor'):
-    net = slim.stack(states, slim.fully_connected, [1024, 512, 256, 128], activation_fn=tf.nn.relu, scope='stack1')
+    net = slim.stack(states, slim.fully_connected, [400, 300], activation_fn=tf.nn.relu, scope='stack1')
     # first 2 ouputs as linear (for logprob later), rest 5 as tanh
     # no, use tanh for all
     # net1 = slim.fully_connected(net, 2, activation_fn=None, scope='net1full')
     # net2 = slim.fully_connected(net, 5, activation_fn=tf.nn.tanh, scope='net2full')
     # net = tf.concat([net1, net2], 1)
     # net_actiontype = slim.fully_connected(net, 1, activation_fn=tf.nn.sigmoid, scope='full_actiontype')
-    net_dash = slim.fully_connected(net, 1, activation_fn=None, scope='full_dash')
-    net_turn = slim.fully_connected(net, 1, activation_fn=None, scope='full_turn')
-    net_movespeed = slim.fully_connected(net, 1, activation_fn=None, scope='full_movespeed')
-    net_moveangle = slim.fully_connected(net, 1, activation_fn=None, scope='full_moveangle')
-    net_turnangle = slim.fully_connected(net, 1, activation_fn=None, scope='full_turnangle')
-    net = tf.concat([ net_dash, net_turn, net_movespeed, net_moveangle, net_turnangle], 1)
+    # net_dash = slim.fully_connected(net, 1, activation_fn=None, scope='full_dash')
+    # net_turn = slim.fully_connected(net, 1, activation_fn=None, scope='full_turn')
+    net_movespeed = slim.fully_connected(net, 1, activation_fn=tf.nn.sigmoid, scope='full_movespeed')
+    net_moveangle = slim.fully_connected(net, 1, activation_fn=tf.nn.tanh, scope='full_moveangle')
+    # net_movespeed = slim.fully_connected(net, 1, activation_fn=None, scope='full_movespeed')
+    # net_moveangle = slim.fully_connected(net, 1, activation_fn=None, scope='full_moveangle')
+    # net_turnangle = slim.fully_connected(net, 1, activation_fn=None, scope='full_turnangle')
+    net = tf.concat([  net_movespeed, net_moveangle], 1)
     # no need to scale
-    # net = ACTION_SCALE_MAX * net
+    net = ACTION_SCALE_MAX * net
     return net
 
 def critic_network(states, actions):
   with tf.variable_scope('critic'):
-    state_net = slim.stack(states, slim.fully_connected, [512], activation_fn=tf.nn.relu, scope='stack_state')
+    state_net = slim.stack(states, slim.fully_connected, [400], activation_fn=tf.nn.relu, scope='stack_state')
     # action_net = slim.stack(actions, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_action')
 
     net = tf.concat([state_net, actions], 1)
 
-    net = slim.stack(net, slim.fully_connected, [256, 128], activation_fn=tf.nn.relu, scope='stack_all')
+    net = slim.stack(net, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_all')
     net = tflearn.fully_connected(net, 1)
     net = tf.squeeze(net, axis=[1])
     return net
 
 def getHFOAction(action):
-  dash, turn, movespeed, moveangle, turnangle = action
+  movespeed, moveangle = action
   # actiontype = np.random.choice(2, 1, p=[actiontype, 1-actiontype])
   # actiontype = np.squeeze(actiontype)
-  hfoAction = (0 , [movespeed], [moveangle], [turnangle], [0.], [0.])
+  hfoAction = (0 , [movespeed], [moveangle], [0.], [0.], [0.])
   # print hfoAction
   return hfoAction
   # cont = tuple(np.expand_dims(action[1:], axis=1))
@@ -88,9 +90,9 @@ def fromHFOState(hfoState):
   # return ret
 
 def main(_):
-  actor = Actor(actor_network, actor_optimizer, sess, observation_shape, action_shape, tau=1e-4)
-  critic = Critic(critic_network, critic_optimizer, sess, observation_shape, action_shape, tau=1e-4)
-  actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.array([0., 0., 50., 0., 0.]))
+  actor = Actor(actor_network, actor_optimizer, sess, observation_shape, action_shape, tau=1e-3)
+  critic = Critic(critic_network, critic_optimizer, sess, observation_shape, action_shape, tau=1e-3)
+  actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.array([ 50., 0.]))
   MAX_EPISODES = 10000
   MAX_STEPS    = 1000
 
@@ -127,7 +129,7 @@ def main(_):
       memory.append(state, action, reward, done)
       numsteps += 1
 
-      if numsteps > BATCH_SIZE and not FLAGS.notrain:
+      if numsteps > BATCH_SIZE and FLAGS.train:
         # indices = np.random.choice(len(memory_buffer), BATCH_SIZE, replace=False)
         # indices = range(64)
         # states, actions, rewards, next_states, notdones = zip(*[memory_buffer[idx] for idx in indices])
@@ -165,7 +167,9 @@ def main(_):
                 newgrad.append(delp * (p - pmin) / (pmax - pmin))
           inverted_grads.append(newgrad)
 
-        actor.train(states=states, action_gradients=np.array(inverted_grads))
+        # nope, use normal grads 
+        # actor.train(states=states, action_gradients=np.array(inverted_grads))
+        actor.train(states=states, action_gradients=action_gradients)
 
         # update targets
         actor.update_target()
