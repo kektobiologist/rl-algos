@@ -47,14 +47,14 @@ def actor_network(states):
     # net_actiontype = slim.fully_connected(net, 1, activation_fn=tf.nn.sigmoid, scope='full_actiontype')
     # net_dash = slim.fully_connected(net, 1, activation_fn=None, scope='full_dash')
     # net_turn = slim.fully_connected(net, 1, activation_fn=None, scope='full_turn')
-    net_movespeed = slim.fully_connected(net, 1, activation_fn=tf.nn.sigmoid, scope='full_movespeed')
-    net_moveangle = slim.fully_connected(net, 1, activation_fn=tf.nn.tanh, scope='full_moveangle')
-    # net_movespeed = slim.fully_connected(net, 1, activation_fn=None, scope='full_movespeed')
-    # net_moveangle = slim.fully_connected(net, 1, activation_fn=None, scope='full_moveangle')
+    # net_movespeed = slim.fully_connected(net, 1, activation_fn=tf.nn.sigmoid, scope='full_movespeed')
+    # net_moveangle = slim.fully_connected(net, 1, activation_fn=tf.nn.tanh, scope='full_moveangle')
+    net_movespeed = slim.fully_connected(net, 1, activation_fn=None, scope='full_movespeed')
+    net_moveangle = slim.fully_connected(net, 1, activation_fn=None, scope='full_moveangle')
     # net_turnangle = slim.fully_connected(net, 1, activation_fn=None, scope='full_turnangle')
     net = tf.concat([  net_movespeed, net_moveangle], 1)
     # no need to scale
-    net = ACTION_SCALE_MAX * net
+    # net = ACTION_SCALE_MAX * net
     return net
 
 def critic_network(states, actions):
@@ -168,8 +168,8 @@ def main(_):
           inverted_grads.append(newgrad)
 
         # nope, use normal grads 
-        # actor.train(states=states, action_gradients=np.array(inverted_grads))
-        actor.train(states=states, action_gradients=action_gradients)
+        actor.train(states=states, action_gradients=np.array(inverted_grads))
+        # actor.train(states=states, action_gradients=action_gradients)
 
         # update targets
         actor.update_target()
