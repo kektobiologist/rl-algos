@@ -20,7 +20,9 @@ critic_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
 observation_shape = env.observation_space.shape[0]
 action_shape = env.action_space.shape[0]
 
-ACTION_BOUNDS = [2.0]
+ACTION_SCALE_MAX = [2.0]
+ACTION_SCALE_MIN = [-2.0]
+ACTION_SCALE_VALID = [True]
 BATCH_SIZE = 128
 
 
@@ -31,11 +33,13 @@ tf.app.flags.DEFINE_boolean('render', False, 'render of not')
 FLAGS = tf.app.flags.FLAGS
 
 def actor_network(states):
-  net = slim.stack(states, slim.fully_connected, [400, 300], activation_fn=tf.nn.relu, scope='stack')
-  net = slim.fully_connected(net, action_shape, activation_fn=tf.nn.tanh, scope='full')
-  # mult with action bounds
-  net = ACTION_BOUNDS * net
-  return net
+  with tf.variable_scope('actor'):
+    net = slim.stack(states, slim.fully_connected, [400, 300], activation_fn=tf.nn.relu, scope='stack')
+    # net = slim.fully_connected(net, action_shape, activation_fn=None, scope='full')
+    net = tflearn.fully_connected(net, action_shape)
+    # mult with action bounds
+    # net = ACTION_SCALE_MAX * net
+    return net
 
 def critic_network(states, actions):
   with tf.variable_scope('critic'):
@@ -111,8 +115,8 @@ def critic_network_tflearn(states, actions):
 
 
 def main(_):
-  actor = Actor(actor_network, actor_optimizer, sess, observation_shape, action_shape)
-  critic = Critic(critic_network, critic_optimizer, sess, observation_shape, action_shape)
+  actor = Actor(actor_network, actor_optimizer, sess, observation_shape, action_shape, tau=1e-3)
+  critic = Critic(critic_network, critic_optimizer, sess, observation_shape, action_shape, tau=1e-3)
   actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape))
 
   MAX_EPISODES = 10000
@@ -141,8 +145,7 @@ def main(_):
     for j in range(MAX_STEPS):
       if FLAGS.render:
         env.render()
-      action = actor.predict([state])[0] 
-        #+ actor_noise()
+      action = actor.predict([state])[0] + actor_noise()
       next_state, reward, done, _ = env.step(action)
       cum_reward += reward
       tot_rewards.append(reward)
@@ -171,7 +174,21 @@ def main(_):
         tot_loss += qloss
         predicted_actions = actor.predict(states)
         action_gradients = critic.get_action_gradients(states, predicted_actions)
-        actor.train(states=states, action_gradients=action_gradients)
+        inverted_grads = []
+        for grad, action in zip(action_gradients, predicted_actions):
+          # inverting gradients approach
+          newgrad = []
+          for delp, p, pmin, pmax, valid in zip(grad, action, ACTION_SCALE_MIN, ACTION_SCALE_MAX, ACTION_SCALE_VALID):
+            if not valid:
+              newgrad.append(delp)
+            else:
+              if delp > 0:
+                newgrad.append(delp * (pmax - p) / (pmax - pmin))
+              else:
+                newgrad.append(delp * (p - pmin) / (pmax - pmin))
+          inverted_grads.append(newgrad)
+        # actor.train(states=states, action_gradients=action_gradients)
+        actor.train(states=states, action_gradients=inverted_grads)
 
         # update targets
         actor.update_target()
