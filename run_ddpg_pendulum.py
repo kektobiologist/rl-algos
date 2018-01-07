@@ -11,8 +11,9 @@ from policy_gradient.memory import SequentialMemory
 env = gym.make('Pendulum-v0')
 np.random.seed(0)
 tf.set_random_seed(0)
-gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.33)
-sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+# gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.33)
+# sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+sess = tf.Session()
 
 actor_optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
 critic_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
@@ -35,17 +36,17 @@ FLAGS = tf.app.flags.FLAGS
 def actor_network(states):
   with tf.variable_scope('actor'):
     net = slim.stack(states, slim.fully_connected, [400, 300], activation_fn=tf.nn.relu, scope='stack')
-    # net = slim.fully_connected(net, action_shape, activation_fn=None, scope='full')
-    net = tflearn.fully_connected(net, action_shape)
+    net = slim.fully_connected(net, action_shape, activation_fn=None, scope='full')
+    # net = tflearn.fully_connected(net, action_shape)
     # mult with action bounds
-    # net = ACTION_SCALE_MAX * net
+    net = ACTION_SCALE_MAX * net
     return net
 
 def critic_network(states, actions):
   with tf.variable_scope('critic'):
     # state_net = tflearn.fully_connected(states, 300, activation='relu', scope='full_state')
     # action_net = tflearn.fully_connected(actions, 300, activation='relu', scope='full_action')
-    state_net = slim.stack(states, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_state')
+    state_net = slim.stack(states, slim.fully_connected, [400], activation_fn=tf.nn.relu, scope='stack_state')
     # action_net = slim.stack(actions, slim.fully_connected, [300], activation_fn=tf.nn.relu, scope='stack_action')
     # net = tf.contrib.layers.fully_connected(states, 400, scope='full_state')
     # net = tflearn.fully_connected(states, 400)
@@ -53,7 +54,7 @@ def critic_network(states, actions):
     # net = tflearn.activations.relu(net)
     net = tf.concat([state_net, actions], 1)
     # net = tf.contrib.layers.fully_connected(net, 400)
-    net = slim.fully_connected(net, 400, activation_fn=tf.nn.relu, scope='full')
+    net = slim.fully_connected(net, 300, activation_fn=tf.nn.relu, scope='full')
     # w1 = tf.get_variable('w1', shape=[400, 300], dtype=tf.float32)
     # w2 = tf.get_variable('w2', shape=[1, 300], dtype=tf.float32)
     # b = tf.get_variable('b', shape=[300], dtype=tf.float32)
@@ -71,7 +72,8 @@ def critic_network(states, actions):
     # w_init = tflearn.initializations.uniform(minval=-0.003, maxval=0.003)
     # net = slim.stack(net, slim.fully_connected, [24, 1], scope='final', biases_initializer=tf.zeros_initializer())
     # net = tf.layers.dense(net, 1, activation=tf.nn.relu, use_bias=True, name='last')
-    net = tflearn.fully_connected(net, 1)
+    # net = tflearn.fully_connected(net, 1)
+    net = slim.fully_connected(net, 1, activation_fn=None, scope='last')
     net = tf.squeeze(net, axis=[1])
     return net
 
@@ -117,7 +119,7 @@ def critic_network_tflearn(states, actions):
 def main(_):
   actor = Actor(actor_network, actor_optimizer, sess, observation_shape, action_shape, tau=1e-3)
   critic = Critic(critic_network, critic_optimizer, sess, observation_shape, action_shape, tau=1e-3)
-  actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape))
+  actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape), sigma=0.2)
 
   MAX_EPISODES = 10000
   MAX_STEPS    = 1000
@@ -137,15 +139,20 @@ def main(_):
 
   tot_rewards = deque(maxlen=10000)
   numsteps = 0
+  epsilon = 1.0
+  depsilon = 1./50000.
   for e in range(MAX_EPISODES):
     state = env.reset()
     cum_reward = 0
     ep_ave_max_q = 0
     tot_loss = 0
+    actor_noises = []
     for j in range(MAX_STEPS):
       if FLAGS.render:
         env.render()
-      action = actor.predict([state])[0] + actor_noise()
+      noise = epsilon * actor_noise()
+      action = actor.predict([state])[0] + noise
+      actor_noises.append(np.abs(noise))
       next_state, reward, done, _ = env.step(action)
       cum_reward += reward
       tot_rewards.append(reward)
@@ -187,8 +194,8 @@ def main(_):
               else:
                 newgrad.append(delp * (p - pmin) / (pmax - pmin))
           inverted_grads.append(newgrad)
-        # actor.train(states=states, action_gradients=action_gradients)
-        actor.train(states=states, action_gradients=inverted_grads)
+        actor.train(states=states, action_gradients=action_gradients)
+        # actor.train(states=states, action_gradients=inverted_grads)
 
         # update targets
         actor.update_target()
@@ -198,7 +205,7 @@ def main(_):
         # train agent
         # print the score and break out of the loop
         episode_history.append(cum_reward)
-        print("episode: {}/{}, score: {}, avg score for 100 runs: {:.2f}, maxQ: {:.2f}, avg loss: {:.5f}".format(e, MAX_EPISODES, cum_reward, np.mean(episode_history), ep_ave_max_q / float(j), tot_loss / float(j)))
+        print("episode: {}/{}, score: {}, avg score for 100 runs: {:.2f}, maxQ: {:.2f}, avg loss: {:.5f}, avg noise: {:.3f}".format(e, MAX_EPISODES, cum_reward, np.mean(episode_history), ep_ave_max_q / float(j), tot_loss / float(j), np.mean(actor_noises)))
         break
       state = next_state
     if e%100 == 0 and not FLAGS.dont_save:
