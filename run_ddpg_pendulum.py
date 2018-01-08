@@ -8,9 +8,19 @@ from collections import deque
 from policy_gradient.ddpg import Actor, Critic, OrnsteinUhlenbeckActionNoise
 from policy_gradient.memory import SequentialMemory
 
+tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model')
+tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg_pendulum/', 'dir for storing checkpoints')
+tf.app.flags.DEFINE_boolean('dont_save', False, 'whether to save checkpoints')
+tf.app.flags.DEFINE_boolean('render', False, 'render of not')
+tf.app.flags.DEFINE_boolean('train', True, 'train or not')
+tf.app.flags.DEFINE_integer('seed', 0, 'seed for tf and numpy')
+FLAGS = tf.app.flags.FLAGS
+
+print 'seed is {}'.format(FLAGS.seed)
+np.random.seed(FLAGS.seed)
+tf.set_random_seed(FLAGS.seed)
+
 env = gym.make('Pendulum-v0')
-np.random.seed(0)
-tf.set_random_seed(0)
 # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.33)
 # sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 sess = tf.Session()
@@ -27,11 +37,6 @@ ACTION_SCALE_VALID = [True]
 BATCH_SIZE = 128
 
 
-tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model')
-tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg_pendulum/', 'dir for storing checkpoints')
-tf.app.flags.DEFINE_boolean('dont_save', False, 'whether to save checkpoints')
-tf.app.flags.DEFINE_boolean('render', False, 'render of not')
-FLAGS = tf.app.flags.FLAGS
 
 def actor_network(states):
   with tf.variable_scope('actor'):
@@ -135,12 +140,10 @@ def main(_):
   critic.hard_update()
 
   episode_history = deque(maxlen=100)
-  memory = SequentialMemory(limit=600000, window_length=1)
+  memory = SequentialMemory(limit=1000000, window_length=1)
 
   tot_rewards = deque(maxlen=10000)
   numsteps = 0
-  epsilon = 1.0
-  depsilon = 1./50000.
   for e in range(MAX_EPISODES):
     state = env.reset()
     cum_reward = 0
@@ -150,7 +153,7 @@ def main(_):
     for j in range(MAX_STEPS):
       if FLAGS.render:
         env.render()
-      noise = epsilon * actor_noise()
+      noise = actor_noise() if FLAGS.train else 0
       action = actor.predict([state])[0] + noise
       actor_noises.append(np.abs(noise))
       next_state, reward, done, _ = env.step(action)
@@ -159,7 +162,7 @@ def main(_):
       # memory_buffer.append((state, action, reward, next_state, 1.0 if not done else 0.0))
       memory.append(state, action, reward, done)
       numsteps += 1
-      if numsteps > BATCH_SIZE:
+      if numsteps > BATCH_SIZE and FLAGS.train:
         # indices = np.random.choice(len(memory_buffer), BATCH_SIZE, replace=False)
         # indices = range(64)
         states, actions, rewards, next_states, notdones = memory.sample_and_split(BATCH_SIZE)
