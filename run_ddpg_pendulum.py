@@ -41,10 +41,10 @@ BATCH_SIZE = 128
 def actor_network(states):
   with tf.variable_scope('actor'):
     net = slim.stack(states, slim.fully_connected, [400, 300], activation_fn=tf.nn.relu, scope='stack')
-    net = slim.fully_connected(net, action_shape, activation_fn=None, scope='full')
+    net = slim.fully_connected(net, action_shape, activation_fn=None, scope='full', weights_initializer=tf.random_uniform_initializer(-3e-3, 3e-3))
     # net = tflearn.fully_connected(net, action_shape)
     # mult with action bounds
-    net = ACTION_SCALE_MAX * net
+    # net = ACTION_SCALE_MAX * net
     return net
 
 def critic_network(states, actions):
@@ -78,7 +78,7 @@ def critic_network(states, actions):
     # net = slim.stack(net, slim.fully_connected, [24, 1], scope='final', biases_initializer=tf.zeros_initializer())
     # net = tf.layers.dense(net, 1, activation=tf.nn.relu, use_bias=True, name='last')
     # net = tflearn.fully_connected(net, 1)
-    net = slim.fully_connected(net, 1, activation_fn=None, scope='last')
+    net = slim.fully_connected(net, 1, activation_fn=None, scope='last', weights_initializer=tf.random_uniform_initializer(-3e-4, 3e-4))
     net = tf.squeeze(net, axis=[1])
     return net
 
@@ -148,6 +148,7 @@ def main(_):
     state = env.reset()
     cum_reward = 0
     ep_ave_max_q = 0
+    ep_ave_q = 0
     tot_loss = 0
     actor_noises = []
     for j in range(MAX_STEPS):
@@ -181,6 +182,7 @@ def main(_):
         # print np.mean(np.square(target_qs-qs)) - qloss
         # print qloss
         ep_ave_max_q += np.amax(qs)
+        ep_ave_q += np.mean(qs)
         tot_loss += qloss
         predicted_actions = actor.predict(states)
         action_gradients = critic.get_action_gradients(states, predicted_actions)
@@ -197,7 +199,8 @@ def main(_):
               else:
                 newgrad.append(delp * (p - pmin) / (pmax - pmin))
           inverted_grads.append(newgrad)
-        actor.train(states=states, action_gradients=action_gradients)
+        # actor.train(states=states, action_gradients=action_gradients)
+        # don't train actor, just see if q function is learnt correctly
         # actor.train(states=states, action_gradients=inverted_grads)
 
         # update targets
@@ -208,7 +211,15 @@ def main(_):
         # train agent
         # print the score and break out of the loop
         episode_history.append(cum_reward)
-        print("episode: {}/{}, score: {}, avg score for 100 runs: {:.2f}, maxQ: {:.2f}, avg loss: {:.5f}, avg noise: {:.3f}".format(e, MAX_EPISODES, cum_reward, np.mean(episode_history), ep_ave_max_q / float(j), tot_loss / float(j), np.mean(actor_noises)))
+        print("episode: {}/{}, score: {}, avg score for 100 runs: {:.2f}, maxQ: {:.2f}, avg q: {:.2f}, avg loss: {:.5f}, avg noise: {:.3f}".format(
+          e, 
+          MAX_EPISODES, 
+          cum_reward, 
+          np.mean(episode_history), 
+          ep_ave_max_q / float(j), 
+          ep_ave_q / float(j), 
+          tot_loss / float(j), 
+          np.mean(actor_noises)))
         break
       state = next_state
     if e%100 == 0 and not FLAGS.dont_save:
