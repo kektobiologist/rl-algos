@@ -54,7 +54,10 @@ class Agent:
       # neg sign because apply_gradients applies negative too
       self.policy_gradient = tf.gradients(self.actor, tf.trainable_variables(scope='actor_net'), -self.action_gradients, name='policy_gradient') 
 
-      self.actor_train_op = actor_optimizer.apply_gradients(zip(self.policy_gradient, tf.trainable_variables(scope='actor_net')), name='actor_train_op')
+      # use policy loss = -mean(critic(s, mu(s)))
+      # this is equivalent to multiply action gradients approach
+      self.actor_train_op = actor_optimizer.minimize(-tf.reduce_mean(self.q_vals), var_list=tf.trainable_variables(scope='actor_net'), name='actor_train_op')
+      # self.actor_train_op = actor_optimizer.apply_gradients(zip(self.policy_gradient, tf.trainable_variables(scope='actor_net')), name='actor_train_op')
 
       self.variables = tf.trainable_variables(scope='critic_net') + tf.trainable_variables(scope='actor_net')
       self.target_variables = tf.trainable_variables(scope='critic_target_net') + tf.trainable_variables(scope='actor_target_net')
