@@ -14,6 +14,10 @@ tf.app.flags.DEFINE_boolean('dont_save', False, 'whether to save checkpoints')
 tf.app.flags.DEFINE_boolean('render', False, 'render of not')
 tf.app.flags.DEFINE_boolean('train', True, 'train or not')
 tf.app.flags.DEFINE_integer('seed', 0, 'seed for tf and numpy')
+tf.app.flags.DEFINE_float('actor_lr', 0.0001, 'learning rate for actor')
+tf.app.flags.DEFINE_float('critic_lr', 0.001, 'learning rate for critic')
+tf.app.flags.DEFINE_float('tau', 0.001, 'tau')
+
 FLAGS = tf.app.flags.FLAGS
 
 print 'seed is {}'.format(FLAGS.seed)
@@ -25,8 +29,8 @@ env = gym.make('Pendulum-v0')
 # sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 sess = tf.Session()
 
-actor_optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
-critic_optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
+actor_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.actor_lr)
+critic_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.critic_lr)
 
 observation_shape = env.observation_space.shape[0]
 action_shape = env.action_space.shape[0]
@@ -34,17 +38,18 @@ action_shape = env.action_space.shape[0]
 ACTION_SCALE_MAX = [2.0]
 ACTION_SCALE_MIN = [-2.0]
 ACTION_SCALE_VALID = [True]
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 
 
 
 def actor_network(states):
   with tf.variable_scope('actor'):
     net = slim.stack(states, slim.fully_connected, [400, 300], activation_fn=tf.nn.relu, scope='stack')
-    net = slim.fully_connected(net, action_shape, activation_fn=None, scope='full', weights_initializer=tf.random_uniform_initializer(-3e-3, 3e-3))
+    # NOTE: make weights 0 so zero output always? for testing q function approximation
+    net = slim.fully_connected(net, action_shape, activation_fn=tf.nn.tanh, scope='full', weights_initializer=tf.random_uniform_initializer(-3e-4, 3e-4))
     # net = tflearn.fully_connected(net, action_shape)
     # mult with action bounds
-    # net = ACTION_SCALE_MAX * net
+    net = ACTION_SCALE_MAX * net
     return net
 
 def critic_network(states, actions):
@@ -122,9 +127,10 @@ def critic_network_tflearn(states, actions):
 
 
 def main(_):
-  actor = Actor(actor_network, actor_optimizer, sess, observation_shape, action_shape, tau=1e-3)
-  critic = Critic(critic_network, critic_optimizer, sess, observation_shape, action_shape, tau=1e-3)
+  actor = Actor(actor_network, actor_optimizer, sess, observation_shape, action_shape, tau=FLAGS.tau)
+  critic = Critic(critic_network, critic_optimizer, sess, observation_shape, action_shape, tau=FLAGS.tau)
   actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape), sigma=0.2)
+  writer = tf.summary.FileWriter("logs/ddpg", sess.graph)
 
   MAX_EPISODES = 10000
   MAX_STEPS    = 1000
@@ -199,7 +205,7 @@ def main(_):
               else:
                 newgrad.append(delp * (p - pmin) / (pmax - pmin))
           inverted_grads.append(newgrad)
-        # actor.train(states=states, action_gradients=action_gradients)
+        actor.train(states=states, action_gradients=action_gradients)
         # don't train actor, just see if q function is learnt correctly
         # actor.train(states=states, action_gradients=inverted_grads)
 

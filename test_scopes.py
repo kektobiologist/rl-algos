@@ -10,31 +10,33 @@ def test1():
     net = slim.stack(x, slim.fully_connected, [24, 24], activation_fn=tf.nn.tanh, scope='full')
     net = slim.fully_connected(net, 2, activation_fn=None, scope='last')
     return net
+  with tf.name_scope('test_scopes'):
+    x1 = tf.placeholder(tf.float32, [None, 1], name='x1')
+    x2 = tf.placeholder(tf.float32, [None, 1], name='x2')
 
-  x1 = tf.placeholder(tf.float32, [None, 1])
-  x2 = tf.placeholder(tf.float32, [None, 1])
+    with tf.variable_scope('sc'):
+      y1 = getNet(x1)
+    # tf.get_variable_scope().reuse_variables()
+    with tf.variable_scope('sc', reuse=True):
+      y2 = getNet(x2)
 
-  with tf.variable_scope('sc'):
-    y1 = getNet(x1)
-  # tf.get_variable_scope().reuse_variables()
-  with tf.variable_scope('sc', reuse=True):
-    y2 = getNet(x2)
-
-  y_ = tf.placeholder(tf.float32, [None, 2])
-  loss = tf.losses.mean_squared_error(y_, y1)
-  optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.1)
-  train_op = optimizer.minimize(loss)
+    y_ = tf.placeholder(tf.float32, [None, 2], name='y')
+    loss = tf.losses.mean_squared_error(y_, y1)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.1)
+    train_op = optimizer.minimize(loss, name='train_op')
 
   sess = tf.Session()
-  tf.global_variables_initializer().run(session=sess)
+  writer = tf.summary.FileWriter("logs/test_scopes", sess.graph)
+  writer.close()
+  # tf.global_variables_initializer().run(session=sess)
 
-  print sess.run([y1, y2], {x1: [[1]], x2: [[1]]})
+  # print sess.run([y1, y2], {x1: [[1]], x2: [[1]]})
 
-  sess.run(train_op, {x1: [[1]], y_: [[1,2]]})
+  # sess.run(train_op, {x1: [[1]], y_: [[1,2]]})
 
-  print sess.run([y1, y2], {x1: [[1]], x2: [[1]]})
+  # print sess.run([y1, y2], {x1: [[1]], x2: [[1]]})
 
-# test1()
+test1()
 
 def test2():
   def getNet(x, initW, initB):
@@ -55,6 +57,8 @@ def test2():
   train_op = optimizer.minimize(loss, var_list=tf.trainable_variables(scope='to_train'))
 
   sess = tf.Session()
+  writer = tf.summary.FileWriter("logs/test_scopes", sess.graph)
+  writer.close()
   tf.global_variables_initializer().run(session=sess)
   for _ in range(1000):
     x1 = np.random.choice(10, 10).astype(float)
@@ -65,4 +69,4 @@ def test2():
       })
     print w1_, b1_, w2_, b2_, loss_, 2 * x1 * w2_ - y2_grad_
 
-test2()
+# test2()

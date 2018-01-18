@@ -26,7 +26,7 @@ class Actor:
 
 
   def createVariables(self):
-    with tf.name_scope('actor'):
+    with tf.name_scope('actor_scope'):
       # actor network: states => action
       self.states = tf.placeholder(tf.float32, [None, self.observation_shape], 'states')
 
@@ -42,18 +42,21 @@ class Actor:
       self.action_gradients = tf.placeholder(tf.float32, [None, self.action_shape], 'action_gradients')
       # del-theta mu(s) * del-a Q(s,a) | a = mu(s)
       # minus sign because apply_gradients negates the gradient before applying
-      self.unnormalized_actor_gradients = tf.gradients(self.actor_outputs, actor_variables, -self.action_gradients)
-      batch_size = tf.cast(tf.shape(self.states)[0], tf.float32)
-      self.actor_gradients = [tf.div(gradient, batch_size) for gradient in self.unnormalized_actor_gradients]
+      self.unnormalized_actor_gradients = tf.gradients(self.actor_outputs, actor_variables, -self.action_gradients, name='unnormalized_actor_gradients')
+      # removing normalization of actor gradients
+      # batch_size = tf.cast(tf.shape(self.states)[0], tf.float32)
+      # self.actor_gradients = [tf.div(gradient, batch_size) for gradient in self.unnormalized_actor_gradients]
 
-      self.train_op = self.optimizer.apply_gradients(zip(self.actor_gradients, actor_variables))
+      # use unnormalized gradients
+      self.train_op = self.optimizer.apply_gradients(zip(self.unnormalized_actor_gradients, actor_variables), name='actor_train_op')
 
       # copy variables op
-      self.update_target_variables_op = [target_variable.assign(actor_variable * self.tau + target_variable * (1. - self.tau))
-        for (target_variable, actor_variable) in zip(target_actor_variables, actor_variables) ]
+      with tf.variable_scope('actor_target_update'):
+        self.update_target_variables_op = [target_variable.assign(actor_variable * self.tau + target_variable * (1. - self.tau))
+          for (target_variable, actor_variable) in zip(target_actor_variables, actor_variables) ]
 
-      self.hard_update_target_variables_op = [target_variable.assign(actor_variable) 
-        for (target_variable, actor_variable) in zip(target_actor_variables, actor_variables)]
+        self.hard_update_target_variables_op = [target_variable.assign(actor_variable) 
+          for (target_variable, actor_variable) in zip(target_actor_variables, actor_variables)]
 
 
   def predict(self, states):
@@ -90,13 +93,12 @@ class Critic:
     self.createVariables()
 
   def createVariables(self):
-    with tf.name_scope('critic'):
-      # critic network: states, actions => action values
-
+    # critic network: states, actions => action values
+    with tf.name_scope('critic_scope'):
       self.states = tf.placeholder(tf.float32, [None, self.observation_shape], name='states')
       self.actions = tf.placeholder(tf.float32, [None, self.action_shape], name='actions')
-      self.next_states = tf.placeholder(tf.float32, [None, self.observation_shape], name='states')
-      self.next_actions = tf.placeholder(tf.float32, [None, self.action_shape], name='actions')
+      self.next_states = tf.placeholder(tf.float32, [None, self.observation_shape], name='next_states')
+      self.next_actions = tf.placeholder(tf.float32, [None, self.action_shape], name='next_actions')
       self.rewards = tf.placeholder(tf.float32, [None,], name='rewards')
       self.notdones = tf.placeholder(tf.float32, [None,], name='notdones')
 
@@ -108,21 +110,23 @@ class Critic:
       critic_variables = tf.trainable_variables(scope='critic_network')
       target_critic_variables = tf.trainable_variables(scope='target_critic_network')
 
-      targets = self.rewards + self.discount_factor * self.notdones * self.target_critic_outputs
+      with tf.variable_scope('target_qs'):
+        targets = self.rewards + self.discount_factor * self.notdones * self.target_critic_outputs
       self.loss = tf.losses.mean_squared_error(targets, self.critic_outputs)
 
       # self.train_op = slim.learning.create_train_op(loss, self.optimizer, var_list=critic_variables)
       # use normal train op
-      self.train_op = self.optimizer.minimize(self.loss, var_list=critic_variables)
+      self.train_op = self.optimizer.minimize(self.loss, var_list=critic_variables, name='critic_train_op')
 
-      # copy variables op
-      self.update_target_variables_op = [target_variable.assign(critic_variable * self.tau + target_variable * (1. - self.tau))
-        for (target_variable, critic_variable) in zip(target_critic_variables, critic_variables) ]
+      with tf.variable_scope('critic_target_update'):
+        # copy variables op
+        self.update_target_variables_op = [target_variable.assign(critic_variable * self.tau + target_variable * (1. - self.tau))
+          for (target_variable, critic_variable) in zip(target_critic_variables, critic_variables) ]
 
-      self.hard_update_target_variables_op = [target_variable.assign(critic_variable) 
-        for (target_variable, critic_variable) in zip(target_critic_variables, critic_variables)]
-      # action gradients op, why is it [1, batch_size, 1]?
-      self.action_gradients = tf.gradients(self.critic_outputs, self.actions)[0]
+        self.hard_update_target_variables_op = [target_variable.assign(critic_variable) 
+          for (target_variable, critic_variable) in zip(target_critic_variables, critic_variables)]
+        # action gradients op, why is it [1, batch_size, 1]?
+      self.action_gradients = tf.gradients(self.critic_outputs, self.actions, name='action_gradients')[0]
 
   def train(self, states, actions, rewards, next_states, next_actions, notdones):
     return self.session.run([self.critic_outputs, self.loss, self.train_op], feed_dict={
