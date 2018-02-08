@@ -10,7 +10,7 @@ from policy_gradient.noise import OrnsteinUhlenbeckActionNoise
 from policy_gradient.memory import SequentialMemory
 
 tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model')
-tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg2_pendulum/', 'dir for storing checkpoints')
+tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg2_misc/', 'dir for storing checkpoints')
 tf.app.flags.DEFINE_boolean('dont_save', False, 'whether to save checkpoints')
 tf.app.flags.DEFINE_boolean('only_critic', False, 'whether to train only critic')
 tf.app.flags.DEFINE_boolean('render', False, 'render of not')
@@ -18,13 +18,15 @@ tf.app.flags.DEFINE_boolean('train', True, 'train or not')
 tf.app.flags.DEFINE_integer('seed', 0, 'seed for tf and numpy')
 tf.app.flags.DEFINE_float('actor_lr', 0.0001, 'learning rate for actor')
 tf.app.flags.DEFINE_float('critic_lr', 0.001, 'learning rate for critic')
+tf.app.flags.DEFINE_float('sigma', 0.2, 'sigma for Ornstein Uhlenbeck noise')
 tf.app.flags.DEFINE_float('tau', 0.001, 'tau')
+tf.app.flags.DEFINE_string('env', 'Pendulum-v0', 'gym environment')
 FLAGS = tf.app.flags.FLAGS
 
 np.random.seed(FLAGS.seed)
 tf.set_random_seed(FLAGS.seed)
 
-env = gym.make('Pendulum-v0')
+env = gym.make(FLAGS.env)
 # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.33)
 # sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 sess = tf.Session()
@@ -34,10 +36,12 @@ critic_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.critic_lr)
 
 observation_shape = env.observation_space.shape[0]
 action_shape = env.action_space.shape[0]
+action_scale = env.action_space.high
 
-ACTION_SCALE_MAX = [2.0]
-ACTION_SCALE_MIN = [-2.0]
-ACTION_SCALE_VALID = [True]
+print action_scale, action_shape, observation_shape
+# ACTION_SCALE_MAX = [2.0]
+# ACTION_SCALE_MIN = [-2.0]
+# ACTION_SCALE_VALID = [True]
 BATCH_SIZE = 64
 
 
@@ -46,7 +50,7 @@ def actor_network(states):
     net = slim.stack(states, slim.fully_connected, [400, 300], activation_fn=tf.nn.relu, scope='stack')
     net = slim.fully_connected(net, action_shape, activation_fn=tf.nn.tanh, scope='full', weights_initializer=tf.random_uniform_initializer(-3e-4, 3e-4))
     # mult with action bounds
-    net = ACTION_SCALE_MAX * net
+    net = action_scale * net
     return net
 
 def critic_network(states, actions):
@@ -60,8 +64,8 @@ def critic_network(states, actions):
 
 def main(_):
   agent = Agent(actor_network, critic_network, actor_optimizer, critic_optimizer, sess, observation_shape, action_shape, tau=FLAGS.tau)
-  actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape), sigma=0.2)
-  writer = tf.summary.FileWriter("logs/ddpg2", sess.graph)
+  actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape), sigma=FLAGS.sigma)
+  writer = tf.summary.FileWriter("logs/ddpg2_misc", sess.graph)
 
   MAX_EPISODES = 10000
   MAX_STEPS    = 1000
@@ -88,19 +92,21 @@ def main(_):
       noise = actor_noise() if FLAGS.train else 0
       action = agent.sample_action(state) + noise
       next_state, reward, done, _ = env.step(action)
+      # if done and j < MAX_STEPS - 1:
+      #   reward = -20
       cum_reward += reward
       memory.append(state, action, reward, done)
       if memory.nb_entries > BATCH_SIZE and FLAGS.train:
         states, actions, rewards, next_states, terminals = memory.sample_and_split(BATCH_SIZE)
         rewards, terminals = [np.squeeze(x) for x in [rewards, terminals]]
         if not FLAGS.only_critic:
-          _, _, qloss, qvals = agent.train(states, actions, rewards, next_states, terminals)
+          _, _, qloss, qvals, _, actor_diff, critic_diff = agent.train_and_soft_update(states, actions, rewards, next_states, terminals)
         else:
           _, qloss, qvals = agent.train_critic_only(states, actions, rewards, next_states, terminals)
+          _, actor_diff, critic_diff = agent.soft_update()
         critic_losses.append(qloss)
         critic_values.append(np.mean(qvals))
         max_critic_values.append(np.amax(qvals))
-        _, actor_diff, critic_diff = agent.soft_update()
         actor_diffs.append(actor_diff)
         critic_diffs.append(critic_diff)
       if done:

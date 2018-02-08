@@ -9,15 +9,14 @@ DISCOUNT_FACTOR = 0.99
 
 class Agent:
   def __init__(self,
+               global_step,
                actor_network,
                critic_network,
                actor_optimizer,
                critic_optimizer,
-               session,
                observation_shape,
                action_shape,
                tau=1e-3):
-    self.session = session
     with tf.name_scope('agent'):
       # all placeholders
       self.states = tf.placeholder(tf.float32, [None, observation_shape], name='states')
@@ -26,7 +25,6 @@ class Agent:
       self.next_states = tf.placeholder(tf.float32, [None, observation_shape], name='next_states')
       self.terminals = tf.placeholder(tf.float32, [None], name='terminals')
 
-      # make the network
       with tf.variable_scope('actor_net'):
         self.actor = actor_network(self.states)
       with tf.variable_scope('actor_target_net'):
@@ -44,7 +42,7 @@ class Agent:
 
       # critic loss
       self.critic_loss = tf.losses.mean_squared_error(self.target_q_values, self.critic)
-      self.critic_train_op = critic_optimizer.minimize(self.critic_loss, var_list=tf.trainable_variables(scope='critic_net'), name='critic_train_op')
+      self.critic_train_op = critic_optimizer.minimize(self.critic_loss, var_list=tf.trainable_variables(scope='critic_net'), name='critic_train_op', global_step=global_step)
 
       # action gradients
       # del-a Q(s,a) | a = mu(s)
@@ -56,7 +54,7 @@ class Agent:
 
       # use policy loss = -mean(critic(s, mu(s)))
       # this is equivalent to multiply action gradients approach
-      self.actor_train_op = actor_optimizer.minimize(-tf.reduce_mean(self.q_vals), var_list=tf.trainable_variables(scope='actor_net'), name='actor_train_op')
+      self.actor_train_op = actor_optimizer.minimize(-tf.reduce_mean(self.q_vals), var_list=tf.trainable_variables(scope='actor_net'), name='actor_train_op', global_step=global_step)
       # self.actor_train_op = actor_optimizer.apply_gradients(zip(self.policy_gradient, tf.trainable_variables(scope='actor_net')), name='actor_train_op')
 
       self.variables = tf.trainable_variables(scope='critic_net') + tf.trainable_variables(scope='actor_net')
@@ -75,14 +73,14 @@ class Agent:
           self.critic_target_diff_norm = tf.reduce_mean([tf.reduce_mean(tf.square(a-b)) for a, b  in zip(critic_vars, critic_target_vars)])
 
 
-  def hard_update(self):
-    return self.session.run(self.hard_update_)
+  def hard_update(self, session):
+    return session.run(self.hard_update_)
 
-  def soft_update(self):
-    return self.session.run([self.soft_update_, self.actor_target_diff_norm, self.critic_target_diff_norm])
+  def soft_update(self, session):
+    return session.run([self.soft_update_, self.actor_target_diff_norm, self.critic_target_diff_norm])
 
-  def train(self, states, actions, rewards, next_states, terminals):
-    return self.session.run([self.critic_train_op, self.actor_train_op, self.critic_loss, self.q_vals], feed_dict={
+  def train(self, session, states, actions, rewards, next_states, terminals):
+    return session.run([self.critic_train_op, self.actor_train_op, self.critic_loss, self.q_vals], feed_dict={
         self.states: states,
         self.actions: actions,
         self.rewards: rewards,
@@ -90,8 +88,8 @@ class Agent:
         self.terminals: terminals
       })
 
-  def train_critic_only(self, states, actions, rewards, next_states, terminals):
-    return self.session.run([self.critic_train_op, self.critic_loss, self.q_vals], feed_dict={
+  def train_critic_only(self, session, states, actions, rewards, next_states, terminals):
+    return session.run([self.critic_train_op, self.critic_loss, self.q_vals], feed_dict={
         self.states: states,
         self.actions: actions,
         self.rewards: rewards,
@@ -99,8 +97,8 @@ class Agent:
         self.terminals: terminals
       })
 
-  def train_and_soft_update(self, states, actions, rewards, next_states, terminals):
-    return self.session.run([
+  def train_and_soft_update(self, session, states, actions, rewards, next_states, terminals):
+    return session.run([
         self.critic_train_op, 
         self.actor_train_op, 
         self.critic_loss, 
@@ -115,5 +113,5 @@ class Agent:
         self.next_states: next_states,
         self.terminals: terminals
       })
-  def sample_action(self, state):
-    return self.session.run(self.actor, feed_dict={self.states: [state]})[0]
+  def sample_action(self, session, state):
+    return session.run(self.actor, feed_dict={self.states: [state]})[0]
