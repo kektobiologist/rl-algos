@@ -14,7 +14,13 @@ from flask import Flask, abort, request
 import json
 import psutil, os
 # make this process high priority?
+import sys
 
+isPython3 = sys.version_info >= (3, 0)
+clockFunc = time.clock
+
+if isPython3:
+  clockFunc = time.perf_counter
 
 tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model')
 tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg2_dota/', 'dir for storing checkpoints')
@@ -39,6 +45,7 @@ f_episode_history = deque(maxlen=100)
 f_cum_reward = 0
 f_episode = 0
 f_t = 0
+f_maxTime = 0
 
 def queue_get_all(q, maxItemsToRetreive=10):
   items = []
@@ -54,8 +61,10 @@ def queue_get_all(q, maxItemsToRetreive=10):
 count = 0
 
 def ps_process():
-  p = psutil.Process(os.getpid())
-  p.nice(psutil.REALTIME_PRIORITY_CLASS)
+  if os.name == 'nt':
+    p = psutil.Process(os.getpid())
+    p.nice(psutil.REALTIME_PRIORITY_CLASS)
+
   gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.0001)
   server = tf.train.Server(cluster, 
     job_name='ps', 
@@ -64,10 +73,11 @@ def ps_process():
   server.join()
 
 def worker_process(isTrainer, q):
-  p = psutil.Process(os.getpid())
-  p.nice(psutil.REALTIME_PRIORITY_CLASS)
+  if os.name == 'nt':
+    p = psutil.Process(os.getpid())
+    p.nice(psutil.REALTIME_PRIORITY_CLASS)
 
-  gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.3)
+  gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
   server = tf.train.Server(cluster, 
     job_name='worker', 
     task_index=isTrainer, 
@@ -169,11 +179,10 @@ def worker_process(isTrainer, q):
       print(agent.sample_action(sess, np.array([0.] * observation_shape)))
 
       app = Flask('my_flask')
-     
       @app.route('/', methods=['POST'])
       def getAction():
-        startTime = time.perf_counter()
-        global f_prevState, f_prevAction, f_episode_history, f_cum_reward, f_episode, f_t
+        startTime = clockFunc()
+        global f_prevState, f_prevAction, f_episode_history, f_cum_reward, f_episode, f_t, f_maxTime
         data = request.get_json()
         state = data['state']
         t = data['t']
@@ -181,7 +190,7 @@ def worker_process(isTrainer, q):
         # print(len(state))
         noise = actor_noise() if FLAGS.train else np.zeros(action_shape)
         action = agent.sample_action(sess, np.array(state)) + noise
-        endComputationTime = time.perf_counter()
+        endComputationTime = clockFunc()
         prevReward = data['prevReward']
         prevTerminal = data['prevTerminal']
         if f_prevState is not None and f_prevAction is not None:
@@ -189,8 +198,8 @@ def worker_process(isTrainer, q):
         f_prevState = state
         f_prevAction = action
         f_cum_reward += prevReward
-        endTime = time.perf_counter()
-        print('{}| {}, reward = {}, terminal = {}, took {:.2f} sec, tf took {:.2f} sec'.format(ep, t, prevReward, prevTerminal, (endTime - startTime), (endComputationTime - startTime)))
+        f_maxTime = max(f_maxTime, endComputationTime - startTime)
+        print('{}| {}, reward = {}, terminal = {}, took {:.2f} sec, max is {:.2f} sec'.format(ep, t, prevReward, prevTerminal, (endComputationTime - startTime), f_maxTime))
         if prevTerminal:
           f_episode_history.append(f_cum_reward)
           print('{}\t | episode: {}|{} score: {}, avg score for 100 runs: {:.2f}'.format(worker_device, f_episode, data['ep'], f_cum_reward, np.mean(f_episode_history)))
