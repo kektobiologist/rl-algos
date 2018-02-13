@@ -4,7 +4,7 @@ import numpy as np
 import gym
 import tflearn
 from multiprocessing import Process, Queue
-from Queue import Empty
+# from Queue import Empty
 from collections import deque
 from policy_gradient.ddpg2_distributed import Agent
 from policy_gradient.noise import OrnsteinUhlenbeckActionNoise
@@ -33,7 +33,7 @@ def queue_get_all(q, maxItemsToRetreive=10):
       if numOfItemsRetrieved == maxItemsToRetreive:
         break
       items.append(q.get_nowait())
-    except Empty, e:
+    except:
       break
   return items
 
