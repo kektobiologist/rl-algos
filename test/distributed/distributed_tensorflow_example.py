@@ -13,6 +13,7 @@ FLAGS = flags.FLAGS
 ps = ['localhost:2220']; worker = ['localhost:2221', 'localhost:2222']
 
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
+
 cluster = tf.train.ClusterSpec({'worker': worker, 'ps': ps})
 server = tf.train.Server(cluster, 
   job_name=FLAGS.job_name, 

@@ -9,6 +9,7 @@ from collections import deque
 from policy_gradient.ddpg2_distributed import Agent
 from policy_gradient.noise import OrnsteinUhlenbeckActionNoise
 from policy_gradient.memory import SequentialMemory
+import time
 
 tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model')
 tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg2_distributed/', 'dir for storing checkpoints')
@@ -141,27 +142,35 @@ def worker_process(isTrainer, q):
         #     np.mean(actor_diffs),
         #     np.mean(critic_diffs)))
     else:
+      # cold start
+      agent.sample_action(sess, np.zeros(observation_shape))
       episode_history = deque(maxlen=100)
+      maxTime = 0
       for e in range(MAX_EPISODES):
         cum_reward = 0
         state = env.reset()
         for j in range(MAX_STEPS):
           if FLAGS.render:
             env.render()
+          startTime = time.clock()
           noise = actor_noise() if FLAGS.train else 0
           action = agent.sample_action(sess, state) + noise
+          endTime = time.clock()
+          if endTime - startTime > maxTime:
+            maxTime = endTime - startTime
           next_state, reward, done, _ = env.step(action)
           cum_reward += reward
           q.put((state, action, reward, done))
           state = next_state
           if done:
             episode_history.append(cum_reward)
-            print('{}\t |episode {}/{}: score = {}, avg score for 100 runs = {:.2f}, '.format(
+            print('{}\t |episode {}/{}: score = {}, avg score for 100 runs = {:.2f}, maxTime = {:.2f}'.format(
               worker_device,
               e,
               MAX_EPISODES,
               cum_reward,
-              np.mean(episode_history)
+              np.mean(episode_history),
+              maxTime
               ))
             break
 
