@@ -53,7 +53,8 @@ function CreepBlockAI:Setup()
     t3_rad = Entities:FindByName(nil, 'dota_goodguys_tower3_mid'):GetAbsOrigin()
     t3_dire = Entities:FindByName(nil, 'dota_badguys_tower3_mid'):GetAbsOrigin()
     
-    PlayerResource:SetCameraTarget(0, hero)
+    -- NOTE: removing camera centering
+    -- PlayerResource:SetCameraTarget(0, hero)
     
     heroSpeed = hero:GetBaseMoveSpeed()
     -- had weights here
@@ -69,6 +70,12 @@ end
 
 
 function CreepBlockAI:MainLoop()
+    local startPoint = Vector(goodSpawn:GetAbsOrigin().x, goodSpawn:GetAbsOrigin().y, 0)
+    local endPoint = Vector(goodWP:GetAbsOrigin().x, goodWP:GetAbsOrigin().y, 0)
+    print(startPoint)
+    print(endPoint)
+    DebugDrawLine(Vector(0,0,0), endPoint, 255, 0, 255, true, 1)
+
     if ai_state == STATE_RESETTING then
         self:Reset()
         self:Start()
@@ -152,18 +159,31 @@ end
 -- cb expected to be called with prevTerminal, action
 function CreepBlockAI:UpdateSAR(cb)   
     local s_t = {}
-    for i = 1,4 do
-        s_t[i*2-1] = (cPos[i].x - hPos.x) / heroSpeed
-        s_t[i*2] = (cPos[i].y - hPos.y) / heroSpeed
+    -- fuck this
+    -- for i = 1,4 do
+    --     s_t[i*2-1] = (cPos[i].x - hPos.x) / heroSpeed
+    --     s_t[i*2] = (cPos[i].y - hPos.y) / heroSpeed
+    -- end
+    -- use coordinates of everything as state
+    -- manually normalize coordinates ...
+    for i = 1, 4 do
+        s_t[i*2-1] = (cPos[i].x +2500)/2500.0
+        s_t[i*2] = (cPos[i].y + 2250)/2250.0
     end
-    -- add normalized hero angle as a variable too
-    s_t[9] = 0.01745329251 * hero:GetAngles()[1]
+    s_t[9] = (hPos.x + 2500)/2500.0
+    s_t[10] = (hPos.y + 2250)/2250.0
+    -- add normalized hero angle as 2 variables, sin theta and cos theta
+    -- print(hero:GetAngles()[2])
+    local angle  = (2.0 * math.pi *  hero:GetAngles()[2]) / 360.0
+    s_t[11] = math.sin(angle)
+    s_t[12] = math.cos(angle)
     local prevReward = 0
     if t > 0 then
         local reward = 0
         for i = 1,4 do
             local dist = (cPos[i] - last_cPos[i]):Length2D()
             local hdist = (hPos - cPos[i]):Length2D()
+            local hdistLast = (hPos - last_cPos[i]):Length2D()
             if hdist < 500 then
                 if dist < 20 then
                     reward = reward + 0.5
@@ -173,8 +193,13 @@ function CreepBlockAI:UpdateSAR(cb)
                     reward = reward + 0.2
                 else
                 -- just give a little reward for being close...
-                    reward = reward + 0.005
+                -- no, should give reward for getting CLOSER to creeps?
+                    -- reward = reward + 0.005
                 end
+                -- if hdist < hdistLast then
+                --     -- got closer to creep
+                --     reward = reward + 0.005
+                -- end
             end
         end
         
@@ -195,7 +220,9 @@ function CreepBlockAI:UpdateSAR(cb)
         local y = -x + c1
         if cPos[i].y > (-cPos[i].x + c1) then
             -- SAR[t-1]['r'] = SAR[t-1]['r'] - 1
-            prevReward = prevReward - 1
+            -- prevReward = prevReward - 1
+            -- just make it uniformly -1
+            reward = -1
             -- terminal = true
             prevTerminal = true
         end
@@ -208,7 +235,7 @@ function CreepBlockAI:UpdateSAR(cb)
     -- check if hero is too far from lane
     -- local distFromLane = math.abs(hPos.x - hPos.y)/math.sqrt(2)
     local distFromLane = CalcDistanceToLineSegment2D(hPos, t3_rad, t3_dire)
-    print(distFromLane)
+    -- print(distFromLane)
     -- print(hPos)
     if distFromLane > 400 then
         prevReward = -10
@@ -307,10 +334,11 @@ function CreepBlockAI:Start()
     -- use variable to keep track if callback is pending
     isComputing = false
     creeps = {}
+    -- NOTE: REMOVING RANDOMNESS
     for i=1,3 do
-        creeps[i] = CreateUnitByName( "npc_dota_creep_goodguys_melee" , goodSpawn:GetAbsOrigin() + RandomVector( RandomFloat( 0, 200 ) ), true, nil, nil, DOTA_TEAM_GOODGUYS )              
+        creeps[i] = CreateUnitByName( "npc_dota_creep_goodguys_melee" , goodSpawn:GetAbsOrigin() + RandomVector( RandomFloat( 0, 0 ) ), true, nil, nil, DOTA_TEAM_GOODGUYS )              
     end
-    creeps[4] = CreateUnitByName( "npc_dota_creep_goodguys_ranged" , goodSpawn:GetAbsOrigin() + RandomVector( RandomFloat( 0, 200 ) ), true, nil, nil, DOTA_TEAM_GOODGUYS )
+    creeps[4] = CreateUnitByName( "npc_dota_creep_goodguys_ranged" , goodSpawn:GetAbsOrigin() + RandomVector( RandomFloat( 0, 0 ) ), true, nil, nil, DOTA_TEAM_GOODGUYS )
     
     for i = 1,4 do 
         creeps[i]:SetInitialGoalEntity( goodWP )

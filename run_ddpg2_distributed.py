@@ -9,7 +9,7 @@ from collections import deque
 from policy_gradient.ddpg2_distributed import Agent
 from policy_gradient.noise import OrnsteinUhlenbeckActionNoise
 from policy_gradient.memory import SequentialMemory
-import time
+from util.timer import timer
 
 tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model')
 tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg2_distributed/', 'dir for storing checkpoints')
@@ -152,12 +152,11 @@ def worker_process(isTrainer, q):
         for j in range(MAX_STEPS):
           if FLAGS.render:
             env.render()
-          startTime = time.clock()
+          startTime = timer()
           noise = actor_noise() if FLAGS.train else 0
           action = agent.sample_action(sess, state) + noise
-          endTime = time.clock()
-          if endTime - startTime > maxTime:
-            maxTime = endTime - startTime
+          endTime = timer()
+          maxTime = max(maxTime, endTime - startTime)
           next_state, reward, done, _ = env.step(action)
           cum_reward += reward
           q.put((state, action, reward, done))

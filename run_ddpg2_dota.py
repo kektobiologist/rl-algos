@@ -14,13 +14,7 @@ from flask import Flask, abort, request
 import json
 import psutil, os
 # make this process high priority?
-import sys
-
-isPython3 = sys.version_info >= (3, 0)
-clockFunc = time.clock
-
-if isPython3:
-  clockFunc = time.perf_counter
+from util.timer import timer
 
 tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model')
 tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg2_dota/', 'dir for storing checkpoints')
@@ -37,7 +31,8 @@ FLAGS = tf.app.flags.FLAGS
 ps_spec = ['localhost:2220']; worker_spec = ['localhost:2221', 'localhost:2222']
 cluster = tf.train.ClusterSpec({'worker': worker_spec, 'ps': ps_spec})
 
-
+# seconds after which tensorflow computation will be timed out and following exp considered invalid
+DISCARD_TIMEOUT = 0.2
 # globals required by flask.getAction....
 f_prevState = None
 f_prevAction = None
@@ -46,6 +41,8 @@ f_cum_reward = 0
 f_episode = 0
 f_t = 0
 f_maxTime = 0
+f_shouldDiscardExperience = False
+
 
 def queue_get_all(q, maxItemsToRetreive=10):
   items = []
@@ -77,7 +74,7 @@ def worker_process(isTrainer, q):
     p = psutil.Process(os.getpid())
     p.nice(psutil.REALTIME_PRIORITY_CLASS)
 
-  gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
+  gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.1)
   server = tf.train.Server(cluster, 
     job_name='worker', 
     task_index=isTrainer, 
@@ -97,21 +94,22 @@ def worker_process(isTrainer, q):
 
     # observation_shape = env.observation_space.shape[0]
     # action_shape = env.action_space.shape[0]
-    observation_shape = 9 # delx, dely of 4 creeps + angle of hero
+    observation_shape = 12 # x, y of 4 creeps and hero + sin(t), cos(t) of hero angle
     action_shape = 2 # x, y of target location
-
-    ACTION_SCALE_MAX = [2.0]
-    ACTION_SCALE_MIN = [-2.0]
-    ACTION_SCALE_VALID = [True]
+    action_scale = [200., 200.] # limit x, y to 200 units ?
+    # ACTION_SCALE_MAX = [2.0]
+    # ACTION_SCALE_MIN = [-2.0]
+    # ACTION_SCALE_VALID = [True]
     BATCH_SIZE = 64
 
 
+    # ddpg actor output is always in [-1, 1], need to scale action when applying it!
     def actor_network(states):
       with tf.variable_scope('actor', reuse=tf.AUTO_REUSE):
         net = slim.stack(states, slim.fully_connected, [400, 300], activation_fn=tf.nn.relu, scope='stack')
-        net = slim.fully_connected(net, action_shape, activation_fn=None, scope='full', weights_initializer=tf.random_uniform_initializer(-3e-4, 3e-4))
+        net = slim.fully_connected(net, action_shape, activation_fn=tf.nn.tanh, scope='full', weights_initializer=tf.random_uniform_initializer(-3e-4, 3e-4))
         # mult with action bounds
-        # net = ACTION_SCALE_MAX * net
+        # net = action_scale * net
         return net
 
     def critic_network(states, actions):
@@ -126,7 +124,6 @@ def worker_process(isTrainer, q):
     agent = Agent(global_step, actor_network, critic_network, actor_optimizer, critic_optimizer, observation_shape, action_shape, tau=FLAGS.tau)
 
   actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape), sigma=0.2)
-    
 
   MAX_EPISODES = 10000
   MAX_STEPS    = 1000
@@ -134,7 +131,7 @@ def worker_process(isTrainer, q):
   with tf.train.MonitoredTrainingSession(master=server.target, 
       is_chief=True, 
       checkpoint_dir=FLAGS.save_checkpoint_dir,
-      save_checkpoint_secs=60) as sess:
+      save_checkpoint_secs=3600) as sess:
 
     if isTrainer:
       agent.hard_update(sess)
@@ -181,33 +178,55 @@ def worker_process(isTrainer, q):
       app = Flask('my_flask')
       @app.route('/', methods=['POST'])
       def getAction():
-        startTime = clockFunc()
-        global f_prevState, f_prevAction, f_episode_history, f_cum_reward, f_episode, f_t, f_maxTime
+        startTime = timer()
+        global f_prevState, f_prevAction, f_episode_history, f_cum_reward, f_episode, f_t, f_maxTime, f_shouldDiscardExperience
         data = request.get_json()
         state = data['state']
         t = data['t']
         ep = data['ep']
         # print(len(state))
         noise = actor_noise() if FLAGS.train else np.zeros(action_shape)
-        action = agent.sample_action(sess, np.array(state)) + noise
-        endComputationTime = clockFunc()
+        actionWithoutNoise = agent.sample_action(sess, np.array(state))
+        action = actionWithoutNoise + noise
+        endComputationTime = timer()
         prevReward = data['prevReward']
         prevTerminal = data['prevTerminal']
-        if f_prevState is not None and f_prevAction is not None:
+        if endComputationTime - startTime > DISCARD_TIMEOUT:
+          # discard all following experience
+          f_shouldDiscardExperience = True
+        # discard experience that comes after a lag spike
+        if f_prevState is not None and f_prevAction is not None and not f_shouldDiscardExperience:
           q.put((f_prevState, f_prevAction, prevReward, prevTerminal))
         f_prevState = state
         f_prevAction = action
         f_cum_reward += prevReward
         f_maxTime = max(f_maxTime, endComputationTime - startTime)
-        print('{}| {}, reward = {}, terminal = {}, took {:.2f} sec, max is {:.2f} sec'.format(ep, t, prevReward, prevTerminal, (endComputationTime - startTime), f_maxTime))
+        # print(data)
+        print('{}| {}, reward = {}, terminal = {}, took {:.2f} sec, max is {:.2f} sec, noise = ({:.2f}, {:.2f}), discarded = {}'.format(
+          ep, 
+          t, 
+          prevReward, 
+          prevTerminal, 
+          (endComputationTime - startTime), 
+          f_maxTime,
+          noise[0],
+          noise[1],
+          f_shouldDiscardExperience
+          ))
         if prevTerminal:
+          # start using experience again from next episode
+          f_shouldDiscardExperience = False
+          # reset noise!
+          actor_noise.reset()
           f_episode_history.append(f_cum_reward)
           print('{}\t | episode: {}|{} score: {}, avg score for 100 runs: {:.2f}'.format(worker_device, f_episode, data['ep'], f_cum_reward, np.mean(f_episode_history)))
           f_episode += 1
           f_cum_reward = 0
+        # scale action here
+        scaledAction = action_scale * action
         return json.dumps({'action': {
-            'x': action[0],
-            'y': action[1]
+            'x': scaledAction[0],
+            'y': scaledAction[1]
           }})
       app.run(debug=False)
       # while True:

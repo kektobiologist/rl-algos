@@ -8,6 +8,7 @@ from collections import deque
 from policy_gradient.ddpg2 import Agent
 from policy_gradient.noise import OrnsteinUhlenbeckActionNoise
 from policy_gradient.memory import SequentialMemory
+from util.timer import timer
 
 tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model')
 tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg2_pendulum/', 'dir for storing checkpoints')
@@ -79,6 +80,7 @@ def main(_):
   max_critic_values = []
   actor_diffs, critic_diffs = [], []
   memory = SequentialMemory(limit=1000000, window_length=1)
+  maxTime = 0
   for e in range(MAX_EPISODES):
     cum_reward = 0
     state = env.reset()
@@ -86,7 +88,10 @@ def main(_):
       if FLAGS.render:
         env.render()
       noise = actor_noise() if FLAGS.train else 0
+      startTime = timer()
       action = agent.sample_action(state) + noise
+      endTime = timer()
+      maxTime = max(maxTime, endTime - startTime)
       next_state, reward, done, _ = env.step(action)
       cum_reward += reward
       memory.append(state, action, reward, done)
@@ -105,7 +110,7 @@ def main(_):
         critic_diffs.append(critic_diff)
       if done:
         episode_history.append(cum_reward)
-        print('episode {}/{}: score = {}, avg score for 100 runs = {:.2f}, avg qloss = {:.5f}, avg qvals = {:.5f}, avg maxQ = {:.5f}, actor_diff = {:.5f}, critic_diff = {:.5f}'.format(
+        print('episode {}/{}: score = {}, avg score for 100 runs = {:.2f}, avg qloss = {:.5f}, avg qvals = {:.5f}, avg maxQ = {:.5f}, actor_diff = {:.5f}, critic_diff = {:.5f}, max time = {:.2f}'.format(
           e, 
           MAX_EPISODES, 
           cum_reward, 
@@ -114,12 +119,14 @@ def main(_):
           np.mean(critic_values),
           np.mean(max_critic_values),
           np.mean(actor_diffs),
-          np.mean(critic_diffs)))
+          np.mean(critic_diffs),
+          maxTime
+          ))
         break
       state = next_state
     if e%100 == 0 and not FLAGS.dont_save:
       save_path = saver.save(sess, FLAGS.save_checkpoint_dir + 'model-' + str(e) + '.ckpt')
-      print 'saved model ' + save_path
+      print('saved model ' + save_path)
 
 
 if __name__ == '__main__':
