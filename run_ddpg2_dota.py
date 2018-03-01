@@ -18,6 +18,7 @@ from util.timer import timer
 
 tf.app.flags.DEFINE_string('checkpoint',  '', 'load a checkpoint file for model')
 tf.app.flags.DEFINE_string('save_checkpoint_dir', './models/ddpg2_dota/', 'dir for storing checkpoints')
+tf.app.flags.DEFINE_string('summaries_dir', './summaries/ddpg2_dota/', 'dir for storing summaries')
 tf.app.flags.DEFINE_boolean('dont_save', False, 'whether to save checkpoints')
 tf.app.flags.DEFINE_boolean('only_critic', False, 'whether to train only critic')
 tf.app.flags.DEFINE_boolean('render', False, 'render of not')
@@ -32,7 +33,7 @@ ps_spec = ['localhost:2220']; worker_spec = ['localhost:2221', 'localhost:2222']
 cluster = tf.train.ClusterSpec({'worker': worker_spec, 'ps': ps_spec})
 
 # seconds after which tensorflow computation will be timed out and following exp considered invalid
-DISCARD_TIMEOUT = 0.2
+DISCARD_TIMEOUT = 0.2/3.0
 # globals required by flask.getAction....
 f_prevState = None
 f_prevAction = None
@@ -95,7 +96,7 @@ def worker_process(isTrainer, q):
     # observation_shape = env.observation_space.shape[0]
     # action_shape = env.action_space.shape[0]
     observation_shape = 12 # x, y of 4 creeps and hero + sin(t), cos(t) of hero angle
-    action_shape = 2 # x, y of target location
+    action_shape = 4 # x, y of target location, and 2 params for deciding to move or not
     action_scale = [200., 200.] # limit x, y to 200 units ?
     # ACTION_SCALE_MAX = [2.0]
     # ACTION_SCALE_MIN = [-2.0]
@@ -122,7 +123,6 @@ def worker_process(isTrainer, q):
         return net
 
     agent = Agent(global_step, actor_network, critic_network, actor_optimizer, critic_optimizer, observation_shape, action_shape, tau=FLAGS.tau)
-
   actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(action_shape), sigma=0.2)
 
   MAX_EPISODES = 10000
@@ -174,12 +174,15 @@ def worker_process(isTrainer, q):
     else:
       # run a cold start computation
       print(agent.sample_action(sess, np.array([0.] * observation_shape)))
+      train_writer = tf.summary.FileWriter(FLAGS.summaries_dir + '/train', sess.graph)
 
       app = Flask('my_flask')
       @app.route('/', methods=['POST'])
       def getAction():
         startTime = timer()
         global f_prevState, f_prevAction, f_episode_history, f_cum_reward, f_episode, f_t, f_maxTime, f_shouldDiscardExperience
+        # increment total number of steps
+        f_t += 1
         data = request.get_json()
         state = data['state']
         t = data['t']
@@ -220,9 +223,17 @@ def worker_process(isTrainer, q):
           actor_noise.reset()
           f_episode_history.append(f_cum_reward)
           print('{}\t | episode: {}|{} score: {}, avg score for 100 runs: {:.2f}'.format(worker_device, f_episode, data['ep'], f_cum_reward, np.mean(f_episode_history)))
+          # add summaries
+          def getScalarSummary(tag, value):
+            return tf.Summary.Value(tag=tag, simple_value=value)
+          summary = tf.Summary(value=[getScalarSummary('return', f_cum_reward), getScalarSummary('timestamp', endComputationTime), getScalarSummary('episode', ep)])
+          train_writer.add_summary(summary, f_t)
           f_episode += 1
           f_cum_reward = 0
         # scale action here
+        if action[2] < action[3]:
+          action = np.zeros([4])
+        action = action[0:2]
         scaledAction = action_scale * action
         return json.dumps({'action': {
             'x': scaledAction[0],

@@ -1,6 +1,8 @@
 dkjson = require( "game/dkjson" )
 require 'utils.deepprint'
 
+HOST_TIMESCALE = 3
+CYCLE_TIME = 0.2/HOST_TIMESCALE
 
 if CreepBlockAI == nil then
     _G.CreepBlockAI = class({}) 
@@ -27,7 +29,7 @@ function CreepBlockAI:OnGameRulesStateChange()
         SendToServerConsole( "dota_all_vision 1" )
         SendToServerConsole( "dota_creeps_no_spawning  1" )
         SendToServerConsole( "dota_dev forcegamestart" )
-        
+        SendToServerConsole( "host_timescale " .. HOST_TIMESCALE)
     elseif  s == DOTA_GAMERULES_STATE_GAME_IN_PROGRESS then
         GameRules:GetGameModeEntity():SetThink("Setup", self, 5)
     end
@@ -63,7 +65,7 @@ function CreepBlockAI:Setup()
     ep = -1 -- will become zero upon Start()
     -- self:Reset()
     GameRules:GetGameModeEntity():SetThink("MainLoop", self, 1) -- wait a few seonds before starting stuff
-    hero:SetContextThink("BotThink", function() return self:BotLoop() end, 0.2)
+    hero:SetContextThink("BotThink", function() return self:BotLoop() end, CYCLE_TIME)
 end
 
 --------------------------------------------------------------------------------
@@ -104,14 +106,14 @@ end
 
 function CreepBlockAI:BotLoop()
     if ai_state ~= STATE_SIMULATING then
-        return 0.2
+        return CYCLE_TIME
     end
             
     self:UpdatePositions()
     
     -- skip if callback is still pending
     if isComputing then
-        return 0.2
+        return CYCLE_TIME
     end
     -- local terminal, action= self:UpdateSAR()
     self:UpdateSAR(
@@ -123,8 +125,12 @@ function CreepBlockAI:BotLoop()
                 return
             end
             
-            hero:MoveToPosition(hPos + action)
-                    
+            if action == Vector(0, 0, 0) then
+                hero:Stop()
+            else
+                hero:MoveToPosition(hPos + action)
+            end
+
             t = t + 1
     
             return 
@@ -132,18 +138,18 @@ function CreepBlockAI:BotLoop()
 
     -- trying to make sure packets aren't skipped...
     -- nope
-    return 0.2
+    return CYCLE_TIME
     -- if terminal then
     --     self:Reset()
     --     ai_state = STATE_SENDDATA
-    --     return 0.2
+    --     return CYCLE_TIME
     -- end
     
     -- hero:MoveToPosition(hPos + action)
             
     -- t = t + 1
     
-    -- return 0.2
+    -- return CYCLE_TIME
 end
 
 --------------------------------------------------------------------------------
@@ -307,7 +313,7 @@ function CreepBlockAI:RunAsync(state, prevReward, prevTerminal, cb)
             if reply ~= nil then 
                 action = Vector(reply['action']['x'], reply['action']['y'], 0)
             end
-            DebugDrawCircle(hPos + action, Vector(0,255,0), 255, 25, false, 0.2)
+            DebugDrawCircle(hPos + action, Vector(0,255,0), 255, 25, false, CYCLE_TIME)
             isComputing = false
             cb(action)
         end)
@@ -364,7 +370,7 @@ end
             
 --     for i = 1,20 do
 --         if i == max_i then
---             DebugDrawCircle(hPos + Vector(fc3[20+i],fc3[40+i],0), Vector(0,255,0), 255, 25, true, 0.2)
+--             DebugDrawCircle(hPos + Vector(fc3[20+i],fc3[40+i],0), Vector(0,255,0), 255, 25, true, CYCLE_TIME)
 --         else
 --             DebugDrawCircle(hPos + Vector(fc3[20+i],fc3[40+i],0), Vector(255,0,0), 255*weight[i]/weight[max_i], 25, true, 0.2)
 --         end
